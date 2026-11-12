@@ -1,0 +1,9 @@
+pnpm-lock.yaml
+**/dist
+**/node_modules
+**/fixtures/**
+**/vendor/**
+**/*.html
+.sluice
+docs/GOAL.md
+**/package-lock.json

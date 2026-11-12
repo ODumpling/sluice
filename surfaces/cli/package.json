@@ -1,0 +1,30 @@
+{
+  "name": "@sluice-dev/cli",
+  "version": "0.1.0",
+  "description": "Sluice CLI: nothing merges until the checks open the gate.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "sluice": "./bin/sluice.js"
+  },
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/config": "workspace:*",
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/plugin-hello": "workspace:*",
+    "commander": "^15.1.0"
+  }
+}

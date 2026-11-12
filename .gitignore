@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.sluice/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
