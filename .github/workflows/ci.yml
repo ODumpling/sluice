@@ -31,3 +31,23 @@ jobs:
       - run: pnpm test
       - name: CLI smoke test
         run: node surfaces/cli/bin/sluice.js --help
+
+  integration:
+    name: integration (Docker sandboxes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pre-pull sandbox images
+        run: docker pull -q node:22-alpine && docker pull -q postgres:16-alpine
+      - run: pnpm test:integration
+      - name: Clean up sandboxes
+        if: always()
+        run: node surfaces/cli/bin/sluice.js down || true

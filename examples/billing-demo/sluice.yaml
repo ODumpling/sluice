@@ -1,0 +1,36 @@
+# Sluice environment spec for billing-demo (Node + Postgres + Stripe).
+version: 1
+name: billing-demo
+sandbox:
+  services:
+    db:
+      image: postgres:16-alpine
+      env:
+        POSTGRES_USER: sluice
+        POSTGRES_PASSWORD: sluice
+        POSTGRES_DB: billing
+      ports: [5432]
+      ready:
+        exec: [pg_isready, -U, sluice, -d, billing, -h, 127.0.0.1]
+    app:
+      build: .
+      workdir: /app
+      source: src
+      env:
+        PORT: '3000'
+        DATABASE_URL: postgres://sluice:sluice@db:5432/billing
+        STRIPE_API_BASE: ${fakes.stripe.url}
+        STRIPE_SECRET_KEY: sk_test_sluice_billing_demo
+      ports: [3000]
+      dependsOn: [db]
+      determinism: node
+      ready:
+        http: { port: 3000, path: /health }
+  fakes: [stripe]
+  ingress: { service: app, port: 3000 }
+  database:
+    service: db
+    port: 5432
+    user: sluice
+    password: sluice
+    name: billing

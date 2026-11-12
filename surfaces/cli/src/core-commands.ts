@@ -2,6 +2,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { CONFIG_FILENAME } from '@sluice-dev/config';
 import { definePlugin } from '@sluice-dev/plugin-api';
+import { downCommand, upCommand } from './sandbox-commands.js';
 
 export function initTemplate(name: string): string {
   return `# Sluice configuration. Docs: docs/config.md
@@ -38,5 +39,7 @@ export const corePlugin = definePlugin({
         return 0;
       },
     },
+    upCommand,
+    downCommand,
   ],
 });

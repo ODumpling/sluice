@@ -23,3 +23,30 @@ describe('config', () => {
     expect(loaded.config.plugins).toEqual(['./p.mjs']);
   });
 });
+
+describe('sandbox spec', () => {
+  const base = `
+sandbox:
+  services:
+    db: { image: postgres:16-alpine, ports: [5432] }
+    app: { build: ., ports: [3000], dependsOn: [db] }
+  ingress: { service: app, port: 3000 }
+`;
+  it('parses with defaults', () => {
+    const c = parseConfig(base);
+    expect(c.sandbox?.services.app?.workdir).toBe('/app');
+    expect(c.sandbox?.seed).toBe(1);
+    expect(c.sandbox?.fakes).toEqual([]);
+  });
+  it('rejects bad references and image+build', () => {
+    expect(() => parseConfig(base.replace('service: app', 'service: web'))).toThrow(/ingress service web/);
+    expect(() => parseConfig(base.replace('dependsOn: [db]', 'dependsOn: [cache]'))).toThrow(/unknown service cache/);
+    expect(() => parseConfig(base.replace('{ build: .,', '{ build: ., image: x,'))).toThrow(
+      /exactly one of image or build/,
+    );
+  });
+  it('the bundled billing-demo spec is valid', () => {
+    const loaded = loadConfig(join(import.meta.dirname, '..', '..', '..', 'examples', 'billing-demo'));
+    expect(loaded.config.sandbox?.fakes).toEqual(['stripe']);
+  });
+});

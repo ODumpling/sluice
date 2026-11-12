@@ -1,0 +1,27 @@
+{
+  "name": "@sluice-dev/fakes",
+  "version": "0.1.0",
+  "description": "Stateful, contract-validated fakes (Stripe, GitHub, S3) generated from OpenAPI + recorded traffic, with drift detection.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "vendor"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0"
+  },
+  "devDependencies": {
+    "stripe": "^23.1.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@sluice-dev/sandbox",
+  "version": "0.1.0",
+  "description": "Spin up an app and its dependencies in Docker from a sluice.yaml env spec, with egress sealed to fakes.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/config": "workspace:*",
+    "@sluice-dev/fakes": "workspace:*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}
