@@ -34,3 +34,30 @@ export async function checkoutRef(repoDir: string, ref: string): Promise<Checkou
     },
   };
 }
+
+export type LineRanges = Record<string, [number, number][]>;
+
+/** Changed line ranges on the head side of `git diff base head` (1-based, inclusive). */
+export async function changedLines(
+  repoDir: string,
+  base: string,
+  head: string,
+  pathspecs: string[] = [],
+): Promise<LineRanges> {
+  const out = await git(['diff', '-U0', '--no-color', '--no-ext-diff', base, head, '--', ...pathspecs], repoDir);
+  const ranges: LineRanges = {};
+  let file: string | undefined;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      file = line === '+++ /dev/null' ? undefined : line.slice(6);
+      continue;
+    }
+    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (m && file) {
+      const start = Number(m[1]);
+      const count = m[2] === undefined ? 1 : Number(m[2]);
+      if (count > 0) (ranges[file] ??= []).push([start, start + count - 1]);
+    }
+  }
+  return ranges;
+}

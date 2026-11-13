@@ -75,6 +75,17 @@ export const SluiceConfigSchema = z
     /** Per-plugin configuration keyed by plugin name. */
     pluginConfig: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
     sandbox: SandboxSchema.optional(),
+    /** Credential broker policy. */
+    policy: z
+      .object({
+        /** Scope patterns that need per-request human approval, e.g. github:acme/*:merge:write */
+        stepUp: z.array(z.string()).default([]),
+        maxTtlSec: z.number().int().positive().default(3600),
+        db: z.string().default('.sluice/state/broker.db'),
+        audit: z.string().default('.sluice/state/audit.jsonl'),
+      })
+      .strict()
+      .optional(),
     /** Evidence / diff options (noise filters). */
     evidence: z
       .object({

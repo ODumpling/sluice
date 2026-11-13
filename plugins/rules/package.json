@@ -1,0 +1,29 @@
+{
+  "name": "@sluice-dev/plugin-rules",
+  "version": "0.1.0",
+  "description": "Turn review comments into structural rules, proven to catch the bad commit and stay clean on main.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@ast-grep/napi": "^0.51.2",
+    "@sluice-dev/github-api": "workspace:*",
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/policy": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "yaml": "^2.9.1",
+    "@sluice-dev/config": "workspace:*"
+  }
+}

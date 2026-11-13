@@ -31,6 +31,8 @@
     "@sluice-dev/mcp": "workspace:*",
     "@sluice-dev/plugin-bench": "workspace:*",
     "@sluice-dev/plugin-gate": "workspace:*",
+    "@sluice-dev/plugin-rules": "workspace:*",
+    "@sluice-dev/policy": "workspace:*",
     "@sluice-dev/sandbox": "workspace:*",
     "@sluice-dev/web": "workspace:*",
     "@types/node": "^22.20.5",

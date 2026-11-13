@@ -1,0 +1,29 @@
+{
+  "name": "@sluice-dev/policy",
+  "version": "0.1.0",
+  "description": "Task-scoped credential broker (TTL, scopes, spend caps), step-up approval, tamper-evident audit log, and an ast-grep rule engine.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@ast-grep/napi": "^0.51.2",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@sluice-dev/fakes": "workspace:*",
+    "@sluice-dev/github-api": "workspace:*",
+    "stripe": "^23.1.0"
+  }
+}

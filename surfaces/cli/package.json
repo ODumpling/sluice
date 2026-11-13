@@ -30,6 +30,8 @@
     "@sluice-dev/evidence": "workspace:*",
     "@sluice-dev/plugin-gate": "workspace:*",
     "@sluice-dev/web": "workspace:*",
-    "@sluice-dev/plugin-bench": "workspace:*"
+    "@sluice-dev/plugin-bench": "workspace:*",
+    "@sluice-dev/plugin-rules": "workspace:*",
+    "@sluice-dev/policy": "workspace:*"
   }
 }

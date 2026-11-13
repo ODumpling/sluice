@@ -121,3 +121,21 @@ Never observed in CI (Linux). Mitigations: integration files run sequentially,
 fetch/pg timeouts, container resource caps, host-enforced kill deadlines,
 bench test runs without bind mounts. Debug with `SLUICE_TRACE_DOCKER=1` /
 `SLUICE_TRACE_BENCH=1`.
+
+## M5 Policy — done
+
+Delivered: `@sluice-dev/policy` — `CredentialBroker` (task-scoped `slc_` tokens,
+TTL, scopes, request/write/USD caps, real-credential injection, step-up
+approvals, SQLite store), hash-chained `AuditLog`, ast-grep rule engine;
+`@sluice-dev/plugin-rules` (comment → candidate rules → proof on bad commit +
+clean on main → adoption; `rules propose|from-pr|prove|check`; MCP
+`sluice_rules_check`); CLI `sluice policy serve|grant|approvals|approve|deny|audit`;
+`changedLines` moved to `@sluice-dev/sandbox`. ADR-0006.
+
+| Exit criterion                         | Proof                                                                                                                                                                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| agent denied out-of-scope GitHub write | `core/policy/test/broker.test.ts` "denies an out-of-scope GitHub write…" (403 `requires github:acme/billing:contents:write`, nothing reaches the GitHub fake, deny audited with task/agent/scope)                                                    |
+| credential broker + audit              | same file: TTL/revocation, request/write caps, single-use step-up for merges, Stripe spend cap (402); `core/policy/test/audit.test.ts` (edit/delete/reorder detected); `surfaces/cli/test/policy.test.ts`                                            |
+| rule proven on seeded bad commit       | `plugins/rules/test/rules.test.ts` "proves the right candidate on the seeded bad commit…" (flags `stripe.subscriptions.cancel(...)` in the bad PR, clean on main; wrong/noisy candidates rejected) and the CLI flow (bad PR blocked, good PR passes) |
+
+Command: `pnpm test` (these are hermetic unit tests; no Docker needed).

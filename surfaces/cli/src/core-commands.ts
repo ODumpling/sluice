@@ -7,6 +7,7 @@ import { findConfigFile } from '@sluice-dev/config';
 import { dirname } from 'node:path';
 import { downCommand, upCommand } from './sandbox-commands.js';
 import { diffCommand, recordCommand, replayCommand } from './evidence-commands.js';
+import { policyCommands } from './policy-commands.js';
 
 export function initTemplate(name: string): string {
   return `# Sluice configuration. Docs: docs/config.md
@@ -63,5 +64,6 @@ export const corePlugin = definePlugin({
     recordCommand,
     replayCommand,
     diffCommand,
+    ...policyCommands,
   ],
 });
