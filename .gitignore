@@ -10,3 +10,8 @@ coverage/
 .env.*
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+# .NET build output in fixtures/examples
+core/sandbox/test/fixtures/dotnet-*/**/obj/
+core/sandbox/test/fixtures/dotnet-*/**/bin/
+examples/*-dotnet/**/obj/
+examples/*-dotnet/**/bin/

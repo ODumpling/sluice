@@ -9,6 +9,7 @@
 //       `npm login` session (browser sign-in).
 //
 //   node scripts/npm-release.mjs trust [--dry-run]
+//   (both accept --otp=<code>; run them in an interactive terminal so npm can open the browser for 2FA)
 //       One-time, after the first publish: registers .github/workflows/release.yml
 //       in ODumpling/sluice as the trusted publisher of every package
 //       (`npm trust github`, npm >= 11.15, 2FA on your account).
@@ -22,6 +23,8 @@ const REPO = 'ODumpling/sluice';
 const WORKFLOW = 'release.yml';
 const [mode, ...flags] = process.argv.slice(2);
 const dryRun = flags.includes('--dry-run');
+// Pass-through for a 2FA code from an authenticator app (--otp=123456); otherwise npm prompts / opens the browser.
+const otp = flags.find((f) => f.startsWith('--otp='));
 
 const packages = ['core', 'plugins', 'surfaces'].flatMap((group) =>
   readdirSync(join(root, group))
@@ -63,7 +66,14 @@ if (mode === 'publish') {
     sh('pnpm', ['pack', '--pack-destination', out], { cwd: p.dir });
     const tgz = readdirSync(out).find((f) => f.startsWith(p.name.replace('@', '').replace('/', '-') + '-' + p.version));
     if (!tgz) throw new Error(`pack produced no tarball for ${p.name}`);
-    const args = ['publish', join(out, tgz), '--access', 'public', ...(dryRun ? ['--dry-run'] : [])];
+    const args = [
+      'publish',
+      join(out, tgz),
+      '--access',
+      'public',
+      ...(dryRun ? ['--dry-run'] : []),
+      ...(otp ? [otp] : []),
+    ];
     console.log(`npm ${args.join(' ')}`);
     execFileSync('npm', args, { stdio: 'inherit' });
   }
@@ -81,6 +91,7 @@ if (mode === 'publish') {
       '--allow-publish',
       '--yes',
       ...(dryRun ? ['--dry-run'] : []),
+      ...(otp ? [otp] : []),
     ];
     console.log(`npm ${args.join(' ')}`);
     execFileSync('npm', args, { stdio: 'inherit' });
