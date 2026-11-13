@@ -30,10 +30,11 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@sluice-dev/plugin-api": "workspace:*",
-    "@sluice-dev/work": "workspace:*",
-    "@sluice-dev/sandbox": "workspace:*",
     "@sluice-dev/config": "workspace:*",
+    "@sluice-dev/lang": "workspace:*",
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "@sluice-dev/work": "workspace:*",
     "typescript": "~6.0.3"
   }
 }

@@ -31,11 +31,12 @@
   },
   "dependencies": {
     "@ast-grep/napi": "^0.51.2",
+    "@sluice-dev/config": "workspace:*",
     "@sluice-dev/github-api": "workspace:*",
+    "@sluice-dev/lang": "workspace:*",
     "@sluice-dev/plugin-api": "workspace:*",
     "@sluice-dev/policy": "workspace:*",
     "@sluice-dev/sandbox": "workspace:*",
-    "yaml": "^2.9.1",
-    "@sluice-dev/config": "workspace:*"
+    "yaml": "^2.9.1"
   }
 }
