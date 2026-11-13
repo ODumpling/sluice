@@ -132,9 +132,11 @@ all N mutants failed to compile`.
   responses are ordinary responses, judged by the scenario's expectations.
 - **error** — anything else: Docker, the database, a fake, Sluice itself, or a
   toolchain problem the mutant cannot cause (NuGet restore `error NU…`, SDK
-  `error NETSDK…`, Go module resolution such as `missing go.sum entry`). The
-  scenario is retried once; if it fails again the mutant is reported `error`
-  — **not tested**, never counted as caught. The gate **fails closed**: any
+  `error NETSDK…`, MSBuild `error MSB…`, Go module resolution or download such
+  as `missing go.sum entry` / `dial tcp`). The scenario is retried once; if it
+  fails again that scenario is not tested and the mutant's remaining scenarios
+  still run — a later one can catch it. If none does, the mutant is reported
+  `error` — **not tested**, never counted as caught. The gate **fails closed**: any
   errored mutant makes the verdict fail with `mutation proof inconclusive: N
 mutant runs hit sandbox errors`, so a sandbox that dies mid-proof cannot
   produce a passing score from untested mutants.

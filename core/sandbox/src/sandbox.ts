@@ -514,7 +514,12 @@ export class Sandbox {
     if (!ready) {
       await running();
     } else if ('exec' in ready) {
-      await waitFor(`${name} (exec)`, async () => (await this.exec(name, ready.exec)).code === 0, timeout);
+      await waitFor(
+        `${name} (exec)`,
+        // a service that exits (e.g. compile error) fails fast with its logs, like http/tcp probes
+        async () => (await running(), (await this.exec(name, ready.exec)).code === 0),
+        timeout,
+      );
     } else if ('http' in ready) {
       const port = this.hostPort(name, ready.http.port);
       await waitFor(

@@ -195,10 +195,16 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
               language: languageOf(m.file),
               log,
             });
-            if (r.kind === 'invalid' || r.kind === 'error') {
-              report.status = r.kind;
+            if (r.kind === 'invalid') {
+              report.status = 'invalid';
               report.detail = r.detail;
               break;
+            }
+            if (r.kind === 'error') {
+              // keep going: a later scenario may still catch the mutant conclusively
+              report.status = 'error';
+              report.detail = r.detail;
+              continue;
             }
             if (r.kind === 'broken' || r.run.passed !== baseline[i]) {
               report.status = 'killed';
@@ -335,8 +341,8 @@ export type MutantRun =
 /** Compiler error output of a service that builds at startup (`go build` / `dotnet build`). */
 const COMPILE_ERROR: Partial<Record<Language, RegExp>> = {
   go: /\.go:\d+:\d+: |^# \S+\s*$/m,
-  // compiler (CSnnnn) and analyzer errors (CA1822, IDE0059, SA1000…); not restore/SDK (NU…, NETSDK…)
-  csharp: /\berror CS\d{4}\b|: error (?!NU\d|NETSDK\d)[A-Z]{2,}\d{3,5}: /,
+  // compiler (CSnnnn) and analyzer errors (CA1822, IDE0059, SA1000…); not restore/SDK/MSBuild (NU…, NETSDK…, MSB…)
+  csharp: /\berror CS\d{4}\b|: error (?!NU\d|NETSDK\d|MSB\d)[A-Z]{2,}\d{3,5}: /,
 };
 
 /**
@@ -344,8 +350,9 @@ const COMPILE_ERROR: Partial<Record<Language, RegExp>> = {
  * module download): a sandbox problem, not the mutant's.
  */
 const TOOLCHAIN_ERROR: Partial<Record<Language, RegExp>> = {
-  go: /no required module provides package|missing go\.sum entry|module lookup disabled|^go: .*(dial tcp|: reading )/m,
-  csharp: /: error (NU|NETSDK)\d+: /,
+  // module downloads also surface as `main.go:2:8: mod@v: Get "https://…": dial tcp …` (import position first)
+  go: /no required module provides package|missing go\.sum entry|module lookup disabled|dial tcp|: Get "https?:\/\/|^go: .*: reading /m,
+  csharp: /: error (NU|NETSDK|MSB)\d+: /,
 };
 
 /** The app process itself failed to come up (exit, crash, never ready). */

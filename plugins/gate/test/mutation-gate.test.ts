@@ -99,6 +99,18 @@ describe('runMutantScenario', () => {
     }
     const goMod = exited('src/db.go:5:2: no required module provides package github.com/jackc/pgx/v5');
     expect((await runMutantScenario(failingReset(goMod), scenario, '/t', 'm', { language: 'go' })).kind).toBe('error');
+    // offline module download: the import position comes first, so it looks like a compile error
+    const goDownload = exited(
+      'main.go:2:8: github.com/jackc/pgx/v5@v5.7.1: Get "https://proxy.golang.org/github.com/jackc/pgx/v5/@v/v5.7.1.zip": dial tcp: lookup proxy.golang.org: no such host',
+    );
+    expect((await runMutantScenario(failingReset(goDownload), scenario, '/t', 'm', { language: 'go' })).kind).toBe(
+      'error',
+    );
+    // MSBuild task/Exec failures aren't the mutant's fault either
+    const msb = exited('/app/BillingDemo.csproj(12,5): error MSB3073: The command "npm run build" exited with code 1.');
+    expect((await runMutantScenario(failingReset(msb), scenario, '/t', 'm', { language: 'csharp' })).kind).toBe(
+      'error',
+    );
   });
 
   it('JS/TS startup failures, crashes and readiness timeouts are killed, not invalid', async () => {
