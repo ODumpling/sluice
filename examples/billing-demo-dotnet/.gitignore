@@ -1,0 +1,5 @@
+artifacts/
+bin/
+obj/
+.sluice/sessions/
+.sluice/reports/

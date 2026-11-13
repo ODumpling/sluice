@@ -1,0 +1,37 @@
+{
+  "name": "@sluice-dev/lang",
+  "version": "0.1.0",
+  "description": "Language support for Sluice: TypeScript/JavaScript, Go and C# parsing (ast-grep/tree-sitter), source discovery and toolchain detection.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ODumpling/sluice.git",
+    "directory": "core/lang"
+  },
+  "homepage": "https://github.com/ODumpling/sluice#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@ast-grep/napi": "^0.51.2",
+    "@ast-grep/lang-go": "0.0.6",
+    "@ast-grep/lang-csharp": "0.0.6"
+  }
+}

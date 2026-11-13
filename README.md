@@ -14,9 +14,17 @@ behavioral evidence, enforces policy, and coordinates multi-agent work.
 ```sh
 git clone https://github.com/ODumpling/sluice && cd sluice
 pnpm demo            # needs Node >= 22.13, pnpm 10, Docker
+pnpm demo -- --lang go       # same story on a Go service
+pnpm demo -- --lang dotnet   # same story on an ASP.NET Core (C#) service
 ```
 
-On a bundled app (**billing-demo**: Node + Postgres + fake Stripe):
+**Languages:** TypeScript/JavaScript, Go and C#/.NET are supported out of the
+box across the gate (mutation proof), deterministic sandboxes, symbol leases,
+structural rules, codemods, bench and campaigns — no language toolchain needed
+on the host (see [Languages](docs/languages.md)).
+
+On a bundled app (**billing-demo**: Node + Postgres + fake Stripe; ports in
+[Go](examples/billing-demo-go) and [.NET](examples/billing-demo-dotnet)):
 
 1. a human approves 5 acceptance scenarios for ticket _"cancellation takes
    effect next cycle"_;

@@ -11,13 +11,13 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { scanTree, validateRule } from '@sluice-dev/policy';
-import { git, runInContainer } from '@sluice-dev/sandbox';
+import { defaultPrepare, detectToolchain, inRoot, isDependencyManifest } from '@sluice-dev/lang';
+import { scanTree, validateRule, type RuleLanguage } from '@sluice-dev/policy';
+import { git, runInContainer, type RunInContainerOptions } from '@sluice-dev/sandbox';
 import { applyCodemod, type Codemod } from './codemod.js';
 
 export type Evidence =
-  | { tests: string; scope?: 'repo' | 'all' }
-  | { rule: { language: 'javascript' | 'typescript'; pattern: string; expect: 'none' } };
+  { tests: string; scope?: 'repo' | 'all' } | { rule: { language: RuleLanguage; pattern: string; expect: 'none' } };
 
 export interface StepDef {
   id: string;
@@ -26,14 +26,35 @@ export interface StepDef {
   destructive?: boolean;
   apply: { copy: string } | { codemod: Codemod } | { command: string };
   evidence: Evidence[];
+  /** Dependency prepare for this step's `tests` evidence (overrides the repo/campaign setting). */
+  prepare?: Prepare;
+}
+
+/**
+ * Dependency prepare before offline `tests` evidence: a command run in the
+ * repo directory with network at image build time (only dependency manifests
+ * are present), `true` for the toolchain default, `false` for none. Omitted:
+ * the toolchain default when the repo needs one (Go modules, .NET projects);
+ * none for Node.
+ */
+export type Prepare = string | boolean;
+
+export interface RepoDef {
+  name: string;
+  path: string;
+  /** Evidence image for this repo (default: campaign `evidenceImage`, else the detected toolchain's). */
+  image?: string;
+  prepare?: Prepare;
 }
 
 export interface CampaignDef {
   id: string;
   title: string;
-  repos: { name: string; path: string }[];
+  repos: RepoDef[];
   steps: StepDef[];
+  /** Image for `tests` evidence; default per repo from its detected toolchain (node/golang/dotnet sdk). */
   evidenceImage?: string;
+  prepare?: Prepare;
 }
 
 export type StepStatus = 'pending' | 'passed' | 'failed' | 'rolled_back' | 'blocked';
@@ -79,6 +100,10 @@ export function validateCampaign(raw: unknown, source = 'campaign'): CampaignDef
   const names = new Set(c.repos.map((r) => r.name));
   if (names.size !== c.repos.length) throw new Error(`${source}: duplicate repo names`);
   if (!Array.isArray(c.steps) || !c.steps.length) throw new Error(`${source}: steps required`);
+  const prepareOk = (v: unknown) => v === undefined || typeof v === 'string' || typeof v === 'boolean';
+  if (!prepareOk(c.prepare)) throw new Error(`${source}: prepare must be a command or true/false`);
+  for (const r of c.repos)
+    if (!prepareOk(r.prepare)) throw new Error(`${source}: repo ${r.name} prepare must be a command or true/false`);
   const ids = new Set<string>();
   for (const s of c.steps) {
     if (!s.id || ids.has(s.id)) throw new Error(`${source}: step ids must be unique (${s.id})`);
@@ -86,6 +111,7 @@ export function validateCampaign(raw: unknown, source = 'campaign'): CampaignDef
     for (const r of s.repos ?? [])
       if (!names.has(r)) throw new Error(`${source}: step ${s.id} targets unknown repo ${r}`);
     if (!s.repos?.length) throw new Error(`${source}: step ${s.id} needs repos`);
+    if (!prepareOk(s.prepare)) throw new Error(`${source}: step ${s.id} prepare must be a command or true/false`);
     const kinds = ['copy', 'codemod', 'command'].filter((k) => k in (s.apply ?? {}));
     if (kinds.length !== 1) throw new Error(`${source}: step ${s.id} apply needs exactly one of copy/codemod/command`);
     if (!Array.isArray(s.evidence) || !s.evidence.length)
@@ -170,7 +196,8 @@ async function gather(
       const targets = e.scope === 'all' ? c.def.repos.map((r) => r.name) : [repo];
       const ws = await composeWorkspace(c);
       for (const t of targets) {
-        const r = await runInContainer(ws, `cd ${t} && ${e.tests}`, c.def.evidenceImage ?? 'node:22-alpine', 120);
+        const env = evidenceEnv(c, step, ws, t);
+        const r = await runInContainer(ws, `cd ${t} && ${e.tests}`, env.image, 300, env.options);
         out.push({
           kind: 'tests',
           repo: t,
@@ -203,6 +230,37 @@ async function gather(
     }
   }
   return out;
+}
+
+/** Image and prepare step for `tests` evidence in repo `name` of a composed workspace. */
+export function evidenceEnv(
+  c: LoadedCampaign,
+  step: Pick<StepDef, 'prepare'>,
+  ws: string,
+  name: string,
+): { image: string; options: RunInContainerOptions } {
+  const repo = c.def.repos.find((r) => r.name === name)!;
+  const toolchain = detectToolchain(join(ws, name));
+  const image = repo.image ?? c.def.evidenceImage ?? toolchain?.image ?? 'node:22-alpine';
+  const setting = step.prepare ?? repo.prepare ?? c.def.prepare;
+  let command: string | undefined;
+  if (typeof setting === 'string') command = setting;
+  else if (setting === true) {
+    if (!toolchain) throw new Error(`prepare: true but no toolchain detected in repo ${name}`);
+    command = inRoot(toolchain.root, toolchain.prepareCommand);
+  } else if (setting === undefined) {
+    // the default runs at the repo's detected project root (e.g. backend/go.mod)
+    const p = defaultPrepare(toolchain, join(ws, name, toolchain?.root ?? '.'));
+    command = p && inRoot(toolchain!.root, p);
+  }
+  const env = toolchain && Object.keys(toolchain.env).length ? toolchain.env : undefined;
+  return {
+    image,
+    options: {
+      env,
+      prepare: command ? { command: inRoot(name, command), manifest: isDependencyManifest, env } : undefined,
+    },
+  };
 }
 
 async function apply(c: LoadedCampaign, step: StepDef, repo: string): Promise<string[]> {

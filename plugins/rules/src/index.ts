@@ -2,9 +2,10 @@ import { resolve } from 'node:path';
 import { findConfigFile } from '@sluice-dev/config';
 import { GitHubClient, parseRepo } from '@sluice-dev/github-api';
 import { definePlugin, type PluginContext } from '@sluice-dev/plugin-api';
-import { onChangedLines, scanTree, type Finding } from '@sluice-dev/policy';
+import { LANGUAGES, detectToolchain, isLanguage } from '@sluice-dev/lang';
+import { onChangedLines, scanTree, type Finding, type RuleLanguage } from '@sluice-dev/policy';
 import { changedLines, checkoutRef, git } from '@sluice-dev/sandbox';
-import { proposeFromComment, proveRule, RuleStore, type ReviewComment } from './rules.js';
+import { commentLanguage, proposeFromComment, proveRule, RuleStore, type ReviewComment } from './rules.js';
 
 export * from './rules.js';
 
@@ -28,6 +29,22 @@ export async function checkRules(root: string, o: { base?: string; head?: string
   }
 }
 
+const LANGUAGE_OPTION = {
+  flags: '--language <lang>',
+  description: `rule language: ${LANGUAGES.join('|')} (default: from --path, else the project toolchain)`,
+};
+
+/** --language, else the commented file's language, else the project's toolchain (go.mod → go, .csproj → csharp). */
+function ruleLanguage(root: string, option: unknown, path?: string): RuleLanguage {
+  if (option !== undefined) {
+    if (!isLanguage(option)) throw new Error(`--language must be ${LANGUAGES.join('|')}`);
+    return option;
+  }
+  if (path) return commentLanguage(path);
+  const t = detectToolchain(root)?.id;
+  return t === 'go' ? 'go' : t === 'dotnet' ? 'csharp' : 'javascript';
+}
+
 function printFindings(ctx: PluginContext, findings: Finding[]): void {
   for (const f of findings)
     ctx.stdout.write(
@@ -49,6 +66,7 @@ export default definePlugin({
         { flags: '--path <file>', description: 'file the comment is on' },
         { flags: '--line <n>', description: 'line the comment is on' },
         { flags: '--commit <ref>', description: 'commit the comment was made on (to read the commented code)' },
+        LANGUAGE_OPTION,
       ],
       async run({ options }, ctx) {
         const root = projectRoot(ctx);
@@ -61,10 +79,12 @@ export default definePlugin({
           c.path && options.commit
             ? await git(['show', `${String(options.commit)}:${c.path}`], root).catch(() => undefined)
             : undefined;
-        const rules = proposeFromComment(c, { sourceAtPath: source });
+        const language = ruleLanguage(root, options.language, c.path);
+        const rules = proposeFromComment(c, { sourceAtPath: source, language });
         const store = new RuleStore(root);
-        for (const r of rules) ctx.stdout.write(`proposed ${r.id}: ${r.pattern} -> ${store.save(r, 'proposed')}\n`);
-        if (!rules.length) ctx.stderr.write('no code pattern found in the comment\n');
+        for (const r of rules)
+          ctx.stdout.write(`proposed ${r.id} (${r.language}): ${r.pattern} -> ${store.save(r, 'proposed')}\n`);
+        if (!rules.length) ctx.stderr.write(`no ${language} code pattern found in the comment\n`);
         return rules.length ? 0 : 1;
       },
     },
@@ -74,6 +94,7 @@ export default definePlugin({
       options: [
         { flags: '--repo <owner/name>', description: 'repository', required: true },
         { flags: '--pr <n>', description: 'pull request number', required: true },
+        LANGUAGE_OPTION,
       ],
       async run({ options }, ctx) {
         const { owner, repo } = parseRepo(String(options.repo));
@@ -84,10 +105,12 @@ export default definePlugin({
           'GET',
           `/repos/${owner}/${repo}/issues/${Number(options.pr)}/comments`,
         );
-        const store = new RuleStore(projectRoot(ctx));
+        const root = projectRoot(ctx);
+        const store = new RuleStore(root);
+        const language = ruleLanguage(root, options.language);
         let n = 0;
         for (const c of comments) {
-          for (const r of proposeFromComment({ body: c.body, author: c.user.login, url: c.html_url })) {
+          for (const r of proposeFromComment({ body: c.body, author: c.user.login, url: c.html_url }, { language })) {
             store.save(r, 'proposed');
             ctx.stdout.write(`proposed ${r.id} from ${c.user.login}: ${r.pattern}\n`);
             n++;

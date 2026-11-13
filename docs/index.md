@@ -12,7 +12,11 @@ coordinates many agents working at once.
 ```sh
 git clone https://github.com/ODumpling/sluice && cd sluice
 pnpm demo        # Node ≥ 22.13, pnpm, Docker
+pnpm demo -- --lang go       # or: --lang dotnet
 ```
+
+Works out of the box for **TypeScript/JavaScript, Go and C#/.NET** — see
+[Languages](/languages).
 
 The demo: a human approves 5 scenarios for "cancellation takes effect next
 cycle"; an agent PR that cancels _immediately_ (with green unit tests) is

@@ -32,6 +32,7 @@
     "@sluice-dev/fakes": "workspace:*",
     "@sluice-dev/github": "workspace:*",
     "@sluice-dev/github-api": "workspace:*",
+    "@sluice-dev/lang": "workspace:*",
     "@sluice-dev/mcp": "workspace:*",
     "@sluice-dev/plugin-bench": "workspace:*",
     "@sluice-dev/plugin-campaign": "workspace:*",

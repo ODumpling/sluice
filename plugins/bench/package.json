@@ -30,6 +30,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@sluice-dev/lang": "workspace:*",
     "@sluice-dev/plugin-api": "workspace:*",
     "@sluice-dev/sandbox": "workspace:*",
     "yaml": "^2.9.1"

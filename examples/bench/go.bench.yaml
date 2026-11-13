@@ -1,0 +1,23 @@
+# sluice bench mine -c go.bench.yaml && sluice bench run -c go.bench.yaml
+# A small synthetic Go module (synth/make-repos.mjs, vendored as a bundle) with
+# an external dependency (github.com/google/go-cmp). Nothing but the source and
+# agents is configured: image (golang), test command (`go test ./...`), test
+# files (`_test.go`) and the dependency prepare step (`go mod download`, run
+# with network at image build time; tests stay offline) come from the detected
+# toolchain.
+name: go-textkit
+source:
+  bundle: go-textkit.bundle
+  repo: example/go-textkit
+mine:
+  limit: 10
+  timeoutSec: 120
+agents:
+  - name: oracle
+    command: node ${benchDir}/agents/oracle.mjs
+    oracle: true
+    timeoutSec: 120
+  - name: first-file
+    command: node ${benchDir}/agents/first-file.mjs
+    oracle: true
+    timeoutSec: 120

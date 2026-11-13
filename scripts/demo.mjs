@@ -2,11 +2,35 @@
 // `pnpm demo` — the Sluice north-star demo, from a clean clone, in one command.
 // Needs Node >= 22.13, pnpm and a running Docker daemon. No network calls are
 // made by the demo itself (Docker images / npm packages are fetched on first run).
+//
+//   pnpm demo                  # Node app (examples/billing-demo)
+//   pnpm demo -- --lang go     # Go port (examples/billing-demo-go)
+//   pnpm demo -- --lang dotnet # .NET port (examples/billing-demo-dotnet)
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { LANGS } from './demo/demo-repo.mjs';
 
 const root = join(import.meta.dirname, '..');
+
+function parseLang(argv) {
+  let lang = 'node';
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--lang') lang = argv[++i];
+    else if (a.startsWith('--lang=')) lang = a.slice('--lang='.length);
+    else if (a !== '--') {
+      console.error(`sluice demo: unknown argument ${a} (usage: pnpm demo [-- --lang node|go|dotnet])`);
+      process.exit(2);
+    }
+  }
+  if (!Object.hasOwn(LANGS, lang)) {
+    console.error(`sluice demo: --lang must be one of ${Object.keys(LANGS).join(', ')} (got ${lang})`);
+    process.exit(2);
+  }
+  return lang;
+}
+const lang = parseLang(process.argv.slice(2));
 const step = (msg) => process.stdout.write(`\n\x1b[1m▸ ${msg}\x1b[0m\n`);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts });
@@ -28,7 +52,8 @@ if (!existsSync(join(root, 'surfaces', 'cli', 'dist', 'index.js')) || process.en
 
 const { runCli } = await import('@sluice-dev/cli');
 const { FakeServer, GitHubFake, SimClock } = await import('@sluice-dev/fakes');
-const { PRS, commitAll, createPrBranch, initDemoRepo } = await import('./demo/demo-repo.mjs');
+const { commitAll, createPrBranch, initDemoRepo, prsFor } = await import('./demo/demo-repo.mjs');
+const PRS = prsFor(lang);
 
 const io = (cwd, env = {}) => ({
   cwd,
@@ -49,8 +74,8 @@ github.issueToken('ghs_demo', {
 });
 const ghEnv = { GITHUB_API_URL: gh.url, GITHUB_TOKEN: 'ghs_demo', GITHUB_REPOSITORY: 'acme/billing-demo' };
 
-step('creating demo repo: billing-demo (Node + Postgres + fake Stripe) with ticket CANCEL-1');
-const repo = initDemoRepo();
+step(`creating demo repo: ${LANGS[lang].dir} (${LANGS[lang].label} + Postgres + fake Stripe) with ticket CANCEL-1`);
+const repo = initDemoRepo(undefined, lang);
 console.log(`  ${repo}`);
 await runCli(['gate', 'status', 'CANCEL-1'], io(repo));
 

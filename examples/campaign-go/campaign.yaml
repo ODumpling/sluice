@@ -1,0 +1,43 @@
+# Expand/contract migration across three Go modules: replace the float-based
+# money.FormatDollars with integer-cents money.FormatCents. Consumers build
+# against the sibling library checkout (`replace example.com/money => ../shared-money`).
+# The evidence image (golang) and the dependency prepare step (`go mod download`,
+# network at image build time; tests run offline) come from the detected toolchain.
+# Run: sluice campaign run campaign.yaml   (status: sluice campaign status campaign.yaml)
+id: money-to-cents-go
+title: Migrate every Go service from FormatDollars (float) to FormatCents (integer cents)
+repos:
+  - { name: shared-money, path: repos/shared-money }
+  - { name: checkout, path: repos/checkout }
+  - { name: invoices, path: repos/invoices }
+steps:
+  - id: expand
+    title: Add FormatCents next to the deprecated API
+    repos: [shared-money]
+    apply:
+      copy: steps/expand
+    evidence:
+      - tests: go test ./...
+        scope: all # every repo must still pass against the new library
+
+  - id: migrate
+    title: Switch call sites to FormatCents (codemod)
+    repos: [checkout, invoices]
+    apply:
+      codemod:
+        language: go
+        rules:
+          - { pattern: 'money.FormatDollars($A)', rewrite: 'money.FormatCents(money.ToCents($A))' }
+    evidence:
+      - tests: go test ./...
+      - rule: { language: go, pattern: 'money.FormatDollars($$$)', expect: none }
+
+  - id: contract
+    title: Remove the deprecated API
+    repos: [shared-money]
+    destructive: true # only after every consumer migrated with evidence
+    apply:
+      copy: steps/contract
+    evidence:
+      - tests: go test ./...
+        scope: all

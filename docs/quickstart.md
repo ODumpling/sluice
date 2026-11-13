@@ -25,6 +25,15 @@ Expected: `✘ … 3/5 approved scenarios violated` for the first PR,
 `✔ … 5/5 approved scenarios hold` for the second. Open the HTML reports it
 prints.
 
+The same story runs on a Go service and an ASP.NET Core (C#) service — same
+ticket, scenarios and verdicts (needs no Go or .NET toolchain on the host;
+everything compiles inside the sandbox):
+
+```sh
+pnpm demo -- --lang go       # examples/billing-demo-go
+pnpm demo -- --lang dotnet   # examples/billing-demo-dotnet
+```
+
 ## 2. Try the pieces on billing-demo (≈5 min)
 
 ```sh
@@ -42,8 +51,12 @@ sluice ui                                                    # reports & approva
 
 ```sh
 cd your-service
-sluice init                      # writes sluice.yaml
+sluice init                      # detects Node, Go or .NET; writes sluice.yaml
 ```
+
+`sluice init` detects the toolchain (`package.json`, `go.mod`, `*.csproj` /
+`*.sln`; override with `--lang node|go|dotnet`) and writes a sandbox skeleton
+with the matching determinism mode and unit-test command.
 
 Describe your services and fakes in [`sluice.yaml`](/config), write a ticket
 and scenarios (or let an agent propose them over MCP), approve them, and run

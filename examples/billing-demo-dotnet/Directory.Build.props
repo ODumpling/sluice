@@ -1,0 +1,19 @@
+<Project>
+  <!-- Build output goes to ./artifacts (not next to the sources): the Sluice
+       sandbox mounts src/ and test/ read-only and builds at container start. -->
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- fast incremental builds at container start -->
+    <RunAnalyzers>false</RunAnalyzers>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+</Project>

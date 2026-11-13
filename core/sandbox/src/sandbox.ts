@@ -22,6 +22,13 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { SandboxSpec, ServiceSpec } from '@sluice-dev/config';
 import { FakeServer, GitHubFake, S3Fake, SimClock, StripeFake, type Fake } from '@sluice-dev/fakes';
+import {
+  controlHint,
+  inject,
+  isDeterministic,
+  prepare as prepareDeterminism,
+  readinessHint,
+} from './determinism/index.js';
 import { docker, dockerStream } from './docker.js';
 
 export const GATEWAY_IMAGE = 'node:22-alpine';
@@ -280,10 +287,10 @@ export class Sandbox {
     return (await res.json()) as { total: number; events: unknown[] };
   }
 
-  /** Services running the Node determinism shim. */
+  /** Services running a determinism shim (node, go or dotnet). */
   get deterministicServices(): string[] {
     return Object.entries(this.spec.services)
-      .filter(([, s]) => s.determinism === 'node')
+      .filter(([, s]) => isDeterministic(s))
       .map(([n]) => n);
   }
 
@@ -318,8 +325,11 @@ export class Sandbox {
     const services = this.spec.services;
     const order = topo(services);
 
-    // 1. images
-    for (const s of order) await this.ensureImage(s, services[s]!);
+    // 1. images (+ per-image determinism shims: overlay generation / shim build, cached)
+    for (const s of order) {
+      await this.ensureImage(s, services[s]!);
+      await prepareDeterminism(services[s]!, this.images.get(s)!, this.log);
+    }
     await this.ensurePulled(GATEWAY_IMAGE);
 
     // 2. fakes on the host
@@ -344,7 +354,7 @@ export class Sandbox {
     const inbound = new Map<string, number>();
     for (const s of order) {
       const svc = services[s]!;
-      const ports = [...svc.ports, ...(svc.determinism === 'node' ? [CONTROL_PORT] : [])];
+      const ports = [...svc.ports, ...(isDeterministic(svc) ? [CONTROL_PORT] : [])];
       for (const p of ports) {
         const listen = next++;
         forwards.push({ listen, host: s, port: p, publish: true });
@@ -456,15 +466,18 @@ export class Sandbox {
       '--pids-limit',
       '1024',
     ];
-    const env: Record<string, string> = {};
+    let env: Record<string, string> = {};
     for (const [k, v] of Object.entries(svc.env)) env[k] = this.interpolate(v);
-    if (svc.determinism === 'node') {
-      args.push('-v', `${join(ASSETS, 'determinism.cjs')}:/sluice/determinism.cjs:ro`);
-      env.NODE_OPTIONS = `${env.NODE_OPTIONS ? env.NODE_OPTIONS + ' ' : ''}--require /sluice/determinism.cjs`;
-      env.SLUICE_SEED = String(this.seed);
-      env.SLUICE_NOW_MS = String(this.clock.now());
-      env.SLUICE_CONTROL_PORT = String(CONTROL_PORT);
-    }
+    const shim = await inject(svc, {
+      image: this.images.get(name)!,
+      seed: this.seed,
+      nowMs: this.clock.now(),
+      controlPort: CONTROL_PORT,
+      env,
+      log: this.log,
+    });
+    args.push(...shim.args);
+    env = { ...env, ...shim.env };
     if (svc.source) {
       const ctx = svc.build ? relative(this.root, resolve(this.root, svc.build)) : '.';
       const src = resolve(this.sourceRoot, ctx, svc.source);
@@ -472,11 +485,22 @@ export class Sandbox {
       args.push('-v', `${src}:${svc.workdir.replace(/\/$/, '')}/${svc.source}:ro`);
     }
     for (const [k, v] of Object.entries(env)) args.push('-e', `${k}=${v}`);
-    args.push(this.images.get(name)!, ...(svc.command ?? []));
+    args.push(shim.image ?? this.images.get(name)!, ...(shim.command ?? svc.command ?? []));
     await docker(args);
   }
 
   private async waitReady(name: string): Promise<void> {
+    try {
+      await this.waitReadyInner(name);
+    } catch (e) {
+      const hint = readinessHint(this.spec.services[name]!);
+      if (hint && e instanceof Error && /^timed out/.test(e.message))
+        throw new Error(`${e.message} (${hint})`, { cause: e });
+      throw e;
+    }
+  }
+
+  private async waitReadyInner(name: string): Promise<void> {
     const svc = this.spec.services[name]!;
     const timeout = this.opts.readyTimeoutMs ?? 90_000;
     const running = async () => {
@@ -490,7 +514,12 @@ export class Sandbox {
     if (!ready) {
       await running();
     } else if ('exec' in ready) {
-      await waitFor(`${name} (exec)`, async () => (await this.exec(name, ready.exec)).code === 0, timeout);
+      await waitFor(
+        `${name} (exec)`,
+        // a service that exits (e.g. compile error) fails fast with its logs, like http/tcp probes
+        async () => (await running(), (await this.exec(name, ready.exec)).code === 0),
+        timeout,
+      );
     } else if ('http' in ready) {
       const port = this.hostPort(name, ready.http.port);
       await waitFor(
@@ -507,11 +536,14 @@ export class Sandbox {
       const port = this.hostPort(name, ready.tcp);
       await waitFor(`${name} (tcp ${ready.tcp})`, async () => (await running(), await tcpOpen(port)), timeout);
     }
-    if (svc.determinism === 'node') {
+    if (isDeterministic(svc)) {
       const port = this.hostPort(name, CONTROL_PORT);
       await waitFor(
-        `${name} determinism control`,
-        async () => (await fetch(`http://127.0.0.1:${port}/state`, { signal: AbortSignal.timeout(5_000) })).ok,
+        `${name} determinism control (${svc.determinism}: ${controlHint(svc.determinism)})`,
+        async () => {
+          await running();
+          return (await fetch(`http://127.0.0.1:${port}/state`, { signal: AbortSignal.timeout(5_000) })).ok;
+        },
         timeout,
       );
     }
@@ -519,7 +551,7 @@ export class Sandbox {
 
   private async pushClock(): Promise<void> {
     for (const [name, svc] of Object.entries(this.spec.services)) {
-      if (svc.determinism !== 'node') continue;
+      if (!isDeterministic(svc)) continue;
       const port = this.hostPort(name, CONTROL_PORT);
       const res = await fetch(`http://127.0.0.1:${port}/clock`, {
         method: 'POST',

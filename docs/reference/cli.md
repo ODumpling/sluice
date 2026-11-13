@@ -27,6 +27,7 @@ Create a sluice.yaml in the current directory
 |---|---|
 | `--name <name>` | project name (default: directory name) |
 | `--force` | overwrite an existing config |
+| `--lang <toolchain>` | node \| go \| dotnet (default: detected from the directory) |
 
 ### `sluice policy approvals`
 
@@ -280,6 +281,7 @@ Propose rules from a pull request’s review comments (GitHub API; GITHUB_TOKEN)
 |---|---|
 | `--repo <owner/name>` | repository (required) |
 | `--pr <n>` | pull request number (required) |
+| `--language <lang>` | rule language: javascript\|typescript\|go\|csharp (default: from --path, else the project toolchain) |
 
 ### `sluice rules propose`
 
@@ -291,6 +293,7 @@ Propose structural rules from a review comment
 | `--path <file>` | file the comment is on |
 | `--line <n>` | line the comment is on |
 | `--commit <ref>` | commit the comment was made on (to read the commented code) |
+| `--language <lang>` | rule language: javascript\|typescript\|go\|csharp (default: from --path, else the project toolchain) |
 
 ### `sluice rules prove <id>`
 

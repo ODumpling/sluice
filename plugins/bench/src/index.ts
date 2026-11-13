@@ -23,10 +23,16 @@ export interface BenchConfig {
   mine: {
     limit: number;
     maxCandidates?: number;
-    source: string[];
-    tests: string;
-    testCommand: string;
+    /** Path prefixes counted as source (default: non-test files of the detected toolchain's languages). */
+    source?: string[];
+    /** Test-file regex (default: the toolchain convention — `_test.go`, `*Tests/…cs`, `*.test.js`…). */
+    tests?: string;
+    /** Default: the detected toolchain's (`npm test --silent`, `go test ./...`, `dotnet test --nologo`). */
+    testCommand?: string;
+    /** Default: the detected toolchain's image. */
     image?: string;
+    /** Dependency prepare: command, `true` (toolchain default) or `false`. Default: Go/.NET when needed. */
+    prepare?: string | boolean;
     concurrency?: number;
     timeoutSec?: number;
   };
@@ -85,6 +91,7 @@ export async function mine(b: LoadedBench, log?: (m: string) => void): Promise<M
     tests: m.tests,
     testCommand: m.testCommand,
     image: m.image,
+    prepare: m.prepare,
     limit: m.limit,
     maxCandidates: m.maxCandidates,
     concurrency: m.concurrency,

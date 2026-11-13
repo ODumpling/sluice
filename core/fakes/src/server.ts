@@ -206,7 +206,8 @@ export class FakeServer {
         query,
         body,
         status: r.status,
-        response: r.body,
+        // snapshot: fakes return live state objects that later requests mutate
+        response: r.body === undefined ? r.body : structuredClone(r.body),
         violations,
       });
       return r;

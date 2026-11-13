@@ -1,25 +1,46 @@
 // Builds the north-star demo repository: billing-demo on `main` with ticket
 // CANCEL-1 and its 5 proposed scenarios, plus two agent PR branches.
-// Used by `pnpm demo` and by test/e2e/north-star.itest.ts.
+// Used by `pnpm demo` and by test/e2e/north-star*.itest.ts. Node, Go and .NET
+// ports of the app live in examples/billing-demo{,-go,-dotnet}.
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
-export const EXAMPLE = join(import.meta.dirname, '..', '..', 'examples', 'billing-demo');
-export const PRS = {
-  bad: {
-    branch: 'agent/cancel-immediately',
-    overlay: join(EXAMPLE, 'prs', 'bad-immediate-cancel'),
-    title: 'Add subscription cancellation (CANCEL-1)',
-  },
-  good: {
-    branch: 'agent/cancel-at-period-end',
-    overlay: join(EXAMPLE, 'prs', 'good-period-end-cancel'),
-    title: 'Cancel at period end (CANCEL-1)',
-  },
+const EXAMPLES = join(import.meta.dirname, '..', '..', 'examples');
+/** Demo app per language: the same ticket, scenarios and PRs, ported. */
+export const LANGS = {
+  node: { dir: 'billing-demo', label: 'Node' },
+  go: { dir: 'billing-demo-go', label: 'Go' },
+  dotnet: { dir: 'billing-demo-dotnet', label: '.NET' },
 };
-const EXCLUDE = new Set(['node_modules', 'prs', 'sessions', 'reports']);
+
+export function exampleDir(lang = 'node') {
+  const l = LANGS[lang];
+  if (!l) throw new Error(`unknown demo language ${lang} (expected ${Object.keys(LANGS).join(', ')})`);
+  return join(EXAMPLES, l.dir);
+}
+
+/** The two agent PRs (overlays under <example>/prs) for a language. */
+export function prsFor(lang = 'node') {
+  const example = exampleDir(lang);
+  return {
+    bad: {
+      branch: 'agent/cancel-immediately',
+      overlay: join(example, 'prs', 'bad-immediate-cancel'),
+      title: 'Add subscription cancellation (CANCEL-1)',
+    },
+    good: {
+      branch: 'agent/cancel-at-period-end',
+      overlay: join(example, 'prs', 'good-period-end-cancel'),
+      title: 'Cancel at period end (CANCEL-1)',
+    },
+  };
+}
+
+export const EXAMPLE = exampleDir('node');
+export const PRS = prsFor('node');
+const EXCLUDE = new Set(['node_modules', 'prs', 'sessions', 'reports', 'artifacts', 'bin', 'obj']);
 
 export function git(repo, ...args) {
   return execFileSync('git', args, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -27,13 +48,14 @@ export function git(repo, ...args) {
     .trim();
 }
 
-/** New git repo with billing-demo committed on main. Returns the repo path. */
-export function initDemoRepo(parent = mkdtempSync(join(tmpdir(), 'sluice-demo-'))) {
-  const repo = join(parent, 'billing-demo');
-  cpSync(EXAMPLE, repo, {
+/** New git repo with the language's billing demo committed on main. Returns the repo path. */
+export function initDemoRepo(parent = mkdtempSync(join(tmpdir(), 'sluice-demo-')), lang = 'node') {
+  const example = exampleDir(lang);
+  const repo = join(parent, LANGS[lang].dir);
+  cpSync(example, repo, {
     recursive: true,
     filter: (src) =>
-      !relative(EXAMPLE, src)
+      !relative(example, src)
         .split(/[\\/]/)
         .some((seg) => EXCLUDE.has(seg)),
   });
@@ -42,7 +64,7 @@ export function initDemoRepo(parent = mkdtempSync(join(tmpdir(), 'sluice-demo-')
   git(repo, 'config', 'user.name', 'Acme Dev');
   git(repo, 'config', 'commit.gpgsign', 'false');
   git(repo, 'add', '-A');
-  git(repo, 'commit', '-qm', 'billing-demo + ticket CANCEL-1 with proposed scenarios');
+  git(repo, 'commit', '-qm', `${LANGS[lang].dir} + ticket CANCEL-1 with proposed scenarios`);
   return repo;
 }
 

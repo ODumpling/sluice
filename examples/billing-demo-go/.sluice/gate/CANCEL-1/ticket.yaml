@@ -1,0 +1,13 @@
+id: CANCEL-1
+title: Cancellation takes effect next cycle
+spec: |
+  Customers can cancel their subscription with POST /subscriptions/:id/cancel.
+
+  Cancellation must take effect at the end of the current billing period, not
+  immediately: the customer already paid for the period and keeps access until
+  it ends. Stripe must be told to cancel at period end (no immediate cancel, no
+  further charges). When the period ends the subscription becomes canceled and
+  access stops. Cancelling twice is rejected with 409.
+
+  The app emits a `subscription.cancel_scheduled` event (consumed by the email
+  service) when a cancellation is scheduled.

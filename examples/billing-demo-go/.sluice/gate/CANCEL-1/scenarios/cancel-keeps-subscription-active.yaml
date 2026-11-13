@@ -1,0 +1,15 @@
+id: cancel-keeps-subscription-active
+title: Cancelling schedules the end at the current period end and keeps the subscription active
+rationale: The customer paid for the current period; cancel must not end it now.
+steps:
+  - http: { method: POST, path: /customers, body: { email: ada@example.com, name: Ada } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}', plan: pro_monthly } }
+    save: { sub: body.id, period_end: body.current_period_end }
+  - http: { method: POST, path: '/subscriptions/${sub}/cancel' }
+    expect:
+      status: 200
+      body: { id: '${sub}', status: active, cancel_at: '${period_end}' }
+  - http: { method: POST, path: '/subscriptions/${sub}/cancel' }
+    expect:
+      status: 409

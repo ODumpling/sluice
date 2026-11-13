@@ -32,6 +32,9 @@ importers:
       '@sluice-dev/github-api':
         specifier: workspace:*
         version: link:core/github-api
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:core/lang
       '@sluice-dev/mcp':
         specifier: workspace:*
         version: link:surfaces/mcp
@@ -136,6 +139,18 @@ importers:
 
   core/github-api: {}
 
+  core/lang:
+    dependencies:
+      '@ast-grep/lang-csharp':
+        specifier: 0.0.6
+        version: 0.0.6
+      '@ast-grep/lang-go':
+        specifier: 0.0.6
+        version: 0.0.6
+      '@ast-grep/napi':
+        specifier: ^0.51.2
+        version: 0.51.2
+
   core/plugin-api: {}
 
   core/policy:
@@ -143,6 +158,9 @@ importers:
       '@ast-grep/napi':
         specifier: ^0.51.2
         version: 0.51.2
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../lang
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -188,6 +206,9 @@ importers:
 
   plugins/bench:
     dependencies:
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../../core/lang
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
@@ -203,6 +224,9 @@ importers:
       '@ast-grep/napi':
         specifier: ^0.51.2
         version: 0.51.2
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../../core/lang
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
@@ -230,6 +254,9 @@ importers:
       '@sluice-dev/github-api':
         specifier: workspace:*
         version: link:../../core/github-api
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../../core/lang
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
@@ -273,6 +300,9 @@ importers:
       '@sluice-dev/config':
         specifier: workspace:*
         version: link:../../core/config
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../../core/lang
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
@@ -297,6 +327,9 @@ importers:
       '@sluice-dev/github-api':
         specifier: workspace:*
         version: link:../../core/github-api
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../../core/lang
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
@@ -318,6 +351,9 @@ importers:
       '@sluice-dev/evidence':
         specifier: workspace:*
         version: link:../../core/evidence
+      '@sluice-dev/lang':
+        specifier: workspace:*
+        version: link:../../core/lang
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
@@ -472,6 +508,22 @@ packages:
     resolution: {integrity: sha512-pUOulw3Np129Sc/PqAPVw9gyO5hpEM9AdlAdG/YNhO69plNS3RK3YLuTv9rBHQmxO8DMmEze6qTppKJ1ihEQoQ==}
     engines: {node: '>= 14.0.0'}
 
+  '@ast-grep/lang-csharp@0.0.6':
+    resolution: {integrity: sha512-9Aq0WvJ5wRdJ+iply7H2Aq89o2BOdxFXh3H9tLvf8DryyHgWAQA/CRKUw1HjV8Q4ABUZFl1vLq9Uv3t0gQtZdQ==}
+    peerDependencies:
+      tree-sitter-cli: 0.25.8
+    peerDependenciesMeta:
+      tree-sitter-cli:
+        optional: true
+
+  '@ast-grep/lang-go@0.0.6':
+    resolution: {integrity: sha512-PZap9Rp6t+YKbLjRnFRF5aGBX3/HV9s5Rp7ZPsCM+o3tlTZDo1IqDYnFu+Oeh5Razs2U8K8ccPSJ+GBxalVhWg==}
+    peerDependencies:
+      tree-sitter-cli: 0.25.8
+    peerDependenciesMeta:
+      tree-sitter-cli:
+        optional: true
+
   '@ast-grep/napi-darwin-arm64@0.51.2':
     resolution: {integrity: sha512-5Pbv6QYqNJ9+EQs1A0Kc7AfKx6zuvxJcEjb1pb6mWj2ZJvQoLAG6+o+6bKxKixF/7HoHsOKkg7rbQha+iMOK/w==}
     engines: {node: '>= 10'}
@@ -533,6 +585,9 @@ packages:
   '@ast-grep/napi@0.51.2':
     resolution: {integrity: sha512-bMyr6naywreBBsqW3uv0yc4gC+ghxSSxGYcGvsVjEx3NaQUosp1o8z3tEEqrgtJhtjkT+RNd7R3YLm1+0niaig==}
     engines: {node: '>= 10'}
+
+  '@ast-grep/setup-lang@0.0.6':
+    resolution: {integrity: sha512-aSYZNF5nGQMxnwiA3Lcc8zi0AtpGlug47ADgqCgP/2n7p922FbnW7vo1rbW4kKjW72B/3mDdN7uvYidv8JnPnw==}
 
   '@aws-sdk/checksums@3.1002.5':
     resolution: {integrity: sha512-OHlfkNzDFjYnwNPABhwAkDTUi0HPjfsKUHJDR0bSMORpCXNzRpInPCNCIT08xKDhjaPlcLJ+2Av+Sk7hHnuC8A==}
@@ -2670,6 +2725,14 @@ snapshots:
     dependencies:
       '@algolia/client-common': 5.64.0
 
+  '@ast-grep/lang-csharp@0.0.6':
+    dependencies:
+      '@ast-grep/setup-lang': 0.0.6
+
+  '@ast-grep/lang-go@0.0.6':
+    dependencies:
+      '@ast-grep/setup-lang': 0.0.6
+
   '@ast-grep/napi-darwin-arm64@0.51.2':
     optional: true
 
@@ -2708,6 +2771,8 @@ snapshots:
       '@ast-grep/napi-win32-arm64-msvc': 0.51.2
       '@ast-grep/napi-win32-ia32-msvc': 0.51.2
       '@ast-grep/napi-win32-x64-msvc': 0.51.2
+
+  '@ast-grep/setup-lang@0.0.6': {}
 
   '@aws-sdk/checksums@3.1002.5':
     dependencies:

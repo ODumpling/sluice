@@ -1,0 +1,3 @@
+# Coordination demo: a small C# service several agents work on at once.
+version: 1
+name: coord-demo-dotnet

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Go and C#/.NET get the same out-of-the-box support as TypeScript/JavaScript
+([docs/languages.md](docs/languages.md)):
+
+- **Languages**: new `@sluice-dev/lang` (tree-sitter Go/C# grammars, toolchain
+  detection, dependency-manifest detection).
+- **Sandbox**: `determinism: go` (stdlib overlay: frozen clock, seeded
+  `math/rand`/`crypto/rand`, event capture, control server) and
+  `determinism: dotnet` (`LD_PRELOAD` shim + init). ADR-0010.
+- **Gate**: Go/C# mutation operators; mutants that fail to compile are
+  reported `invalid` and excluded from the score.
+- **Coordination**: Go and C# symbol leases and interface-change broadcast.
+- **Rules/campaigns**: `language: go|csharp` rules, review-comment proposals
+  and codemods.
+- **Bench/campaigns**: offline dependency `prepare` images; toolchain-based
+  defaults for image, tests and source.
+- **CLI**: `sluice init` detects Node/Go/.NET (`--lang`); `pnpm demo -- --lang go|dotnet`.
+- **Examples**: `billing-demo-go`, `billing-demo-dotnet`, `coord-demo-go`,
+  `coord-demo-dotnet`, `campaign-go`, `campaign-dotnet`, Go/.NET bench bundles.
+- Fix: fakes' request journal snapshots responses (behavior diffs no longer
+  show later state changes of the same object).
+
 ## 0.1.0 — 2026-11-13
 
 First release. Nothing merges until the checks open the gate.
