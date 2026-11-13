@@ -87,7 +87,7 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
 
     for (const [index, step] of script.steps.entries()) {
       const journalStart = new Map([...sb.fakes].map(([n, f]) => [n, f.journal.length]));
-      const ev: StepEvidence = { index, name: stepName(step, index), kind: 'http', egress: [], db: [], events: [] };
+      const ev: StepEvidence = { index, name: stepName(step), kind: 'http', egress: [], db: [], events: [] };
       if ('http' in step) {
         const method = step.http.method.toUpperCase();
         const path = interpolate(step.http.path, vars) as string;

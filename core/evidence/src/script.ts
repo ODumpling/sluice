@@ -39,7 +39,7 @@ export function parseDuration(v: string | number): number {
   return Math.round(Number(m[1]) * UNITS[m[2]!]!);
 }
 
-export function stepName(step: Step, i: number): string {
+export function stepName(step: Step): string {
   if (step.name) return step.name;
   if ('http' in step) return `${step.http.method.toUpperCase()} ${step.http.path}`;
   if ('advance' in step) return `advance ${step.advance}`;
