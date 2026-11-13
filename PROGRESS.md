@@ -4,18 +4,18 @@ Spec: [docs/GOAL.md](docs/GOAL.md). Each milestone lists exit criteria and the c
 
 ## Status
 
-| Milestone            | State       |
-| -------------------- | ----------- |
-| M0 Skeleton          | done        |
-| M1 Sandbox + fakes   | not started |
-| M2 Evidence + replay | done        |
-| M3 Gate              | not started |
-| M4 Bench             | not started |
-| M5 Policy            | not started |
-| M6 Coordination      | not started |
-| M7 Campaign          | not started |
-| M8 Polish            | not started |
-| M9 Go/.NET parity    | done        |
+| Milestone            | State |
+| -------------------- | ----- |
+| M0 Skeleton          | done  |
+| M1 Sandbox + fakes   | done  |
+| M2 Evidence + replay | done  |
+| M3 Gate              | done  |
+| M4 Bench             | done  |
+| M5 Policy            | done  |
+| M6 Coordination      | done  |
+| M7 Campaign          | done  |
+| M8 Polish            | done  |
+| M9 Go/.NET parity    | done  |
 
 ## M0 Skeleton — done
 
