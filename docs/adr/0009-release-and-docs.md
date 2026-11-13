@@ -16,14 +16,18 @@
 - **Quickstart budget**: CI runs `pnpm demo` from a fresh checkout without a
   prior install/build and fails if it takes more than 10 minutes.
 - **Release**: pushing a `v*` tag runs lint/typecheck/build/tests, checks the
-  tag matches every package version, publishes to npm with provenance when the
-  `NPM_TOKEN` secret is present, and creates a GitHub release from
-  `CHANGELOG.md`.
+  tag matches every package version, publishes with **npm Trusted Publishing**
+  (GitHub OIDC, `id-token: write`; no long-lived npm token stored anywhere)
+  via `scripts/npm-release.mjs`, and creates a GitHub release from
+  `CHANGELOG.md`. Packages are packed with pnpm (rewrites `workspace:*`) and
+  published with npm ≥ 11.5.1, which implements the OIDC exchange.
 - **S3 fake contract**: AWS publishes Smithy models, not OpenAPI, so the S3
   fake's contract tests use the official `@aws-sdk/client-s3` (dev
   dependency) and the fake verifies SigV4 signatures itself.
 
 ## Consequences
 
-- Publishing requires an npm token with rights to the `@sluice-dev` scope —
-  a credential only the maintainers hold.
+- npm attaches trusted publishers only to existing packages, so the first
+  version is published once from a maintainer's machine (`npm login`, browser
+  sign-in) and `npm trust` registers the workflow (see `RELEASING.md`).
+- Provenance attestations require a public source repository.

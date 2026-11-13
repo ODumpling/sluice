@@ -5,8 +5,8 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
-  id-token: write
+  contents: write # GitHub release
+  id-token: write # npm trusted publishing (OIDC)
 
 jobs:
   publish:
@@ -18,22 +18,19 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint && pnpm typecheck && pnpm build && pnpm test
       - name: Tag matches package versions
         run: |
           v="${GITHUB_REF_NAME#v}"
           node -e "const v=process.argv[1];const fs=require('fs');for(const d of ['core','plugins','surfaces'])for(const p of fs.readdirSync(d)){const f=d+'/'+p+'/package.json';if(!fs.existsSync(f))continue;const j=JSON.parse(fs.readFileSync(f));if(j.version!==v){console.error(f+' is '+j.version+', tag is '+v);process.exit(1)}}" "$v"
-      - name: Publish @sluice-dev/* to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::warning::NPM_TOKEN secret is not set; skipping npm publish (add it under Settings → Secrets → Actions and re-run this job)"
-            exit 0
-          fi
-          pnpm -r --filter "./core/**" --filter "./plugins/**" --filter "./surfaces/**" publish --access public --no-git-checks --provenance
+      # Trusted Publishing: npm exchanges this workflow's GitHub OIDC identity
+      # (id-token: write) for a short-lived publish token. No NPM_TOKEN secret.
+      # One-time setup per package: see RELEASING.md.
+      - name: npm with OIDC support
+        run: npm install -g npm@^11.5.1 && npm --version
+      - name: Publish @sluice-dev/* to npm (OIDC)
+        run: node scripts/npm-release.mjs publish
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
