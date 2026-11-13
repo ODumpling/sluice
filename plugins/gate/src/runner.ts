@@ -1,9 +1,9 @@
 /** Run approved scenarios against a build and evaluate their expectations. */
-import { getPath, interpolate, runScript, type Session } from '@sluice-dev/evidence';
+import { getPath, interpolate, runScript, type BrowserPage as Page, type Session } from '@sluice-dev/evidence';
 import type { Json } from '@sluice-dev/fakes';
 import type { Sandbox } from '@sluice-dev/sandbox';
 import { match } from './matchers.js';
-import { toScript, type Assertion, type HttpExpect, type Scenario } from './scenario.js';
+import { toScript, type Assertion, type BrowserExpect, type HttpExpect, type Scenario } from './scenario.js';
 
 export interface Failure {
   step: number;
@@ -70,17 +70,58 @@ function evalAssertion(a: Assertion, ctx: { session: Session['steps']; fakes: Ma
   return []; // sql handled async in runScenario
 }
 
+const asList = (v: string | string[] | undefined): string[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+
+async function evalBrowserExpect(
+  e: BrowserExpect,
+  ev: NonNullable<Session['steps'][number]['browser']>,
+  page: Page | undefined,
+  timeoutMs: number,
+): Promise<string[]> {
+  const errs: string[] = [];
+  if (e.url !== undefined && ev.url !== e.url) errs.push(`expected page ${e.url}, at ${ev.url}`);
+  if (e.title !== undefined && ev.title !== e.title)
+    errs.push(`expected title ${JSON.stringify(e.title)}, got ${JSON.stringify(ev.title)}`);
+  const visibleText = ev.text.join('\n');
+  for (const t of asList(e.text))
+    if (!visibleText.includes(t))
+      errs.push(
+        `expected the page to show ${JSON.stringify(t)}; visible text: ${JSON.stringify(visibleText.slice(0, 300))}`,
+      );
+  for (const [state, sels] of [
+    ['visible', asList(e.visible)],
+    ['hidden', asList(e.hidden)],
+  ] as const) {
+    for (const sel of sels) {
+      if (!page) {
+        errs.push(`cannot check ${state} ${sel}: no browser page`);
+        continue;
+      }
+      const ok = await page
+        .locator(sel)
+        .first()
+        .waitFor({ state, timeout: timeoutMs })
+        .then(() => true)
+        .catch(() => false);
+      if (!ok) errs.push(`expected ${sel} to be ${state} on ${ev.url}`);
+    }
+  }
+  if (e.noErrors && ev.console.length) errs.push(`expected no page errors, got: ${ev.console.slice(0, 3).join(' | ')}`);
+  return errs;
+}
+
 export async function runScenario(
   sb: Sandbox,
   scenario: Scenario,
-  opts: { sourceRoot: string; label: string },
+  opts: { sourceRoot: string; label: string; screenshots?: boolean },
 ): Promise<ScenarioRun> {
   const started = Date.now();
   const failures: Failure[] = [];
   const session = await runScript(sb, toScript(scenario), {
     label: opts.label,
     sourceRoot: opts.sourceRoot,
-    async afterStep({ index, evidence, steps, vars, sandbox, db }) {
+    screenshots: opts.screenshots,
+    async afterStep({ index, evidence, steps, vars, sandbox, db, page }) {
       const st = scenario.steps[index]!;
       const fail = (message: string): void => void failures.push({ step: index, stepName: evidence.name, message });
       if ('assert' in st) {
@@ -101,6 +142,16 @@ export async function runScenario(
         }
         const fakes = new Map([...sandbox.fakes].map(([n, f]) => [n, f.fake.state()]));
         for (const m of evalAssertion(a, { session: steps, fakes })) fail(m);
+        return;
+      }
+      if (evidence.browser) {
+        if (evidence.browser.error) fail(`${evidence.browser.action}: ${evidence.browser.error}`);
+        const be = (st as { expect?: BrowserExpect }).expect;
+        if (be) {
+          const e = interpolate(be as unknown as Json, vars) as unknown as BrowserExpect;
+          const timeout = sandbox.spec.browser?.actionTimeoutMs ?? 5000;
+          for (const m of await evalBrowserExpect(e, evidence.browser, page, timeout)) fail(m);
+        }
         return;
       }
       const expect = (st as { expect?: HttpExpect }).expect;

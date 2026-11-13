@@ -10,7 +10,7 @@
 import type { Json } from '@sluice-dev/fakes';
 import type { Session } from './session.js';
 
-export type Channel = 'response' | 'egress' | 'db' | 'events' | 'final';
+export type Channel = 'response' | 'browser' | 'egress' | 'db' | 'events' | 'final';
 
 export interface DiffEntry {
   /** Step index, or -1 for final state. */
@@ -33,7 +33,8 @@ export interface DiffOptions {
   /**
    * Noise filters: dot paths with `*` (one segment) and `**` (any depth),
    * rooted at a channel, e.g. "db.*.new.updated_at", "response.body.created",
-   * "egress.*.response.created", "final.db.*.*.updated_at".
+   * "egress.*.response.created", "final.db.*.*.updated_at",
+   * "browser.network.*.response.created", "browser.text".
    */
   ignore?: string[];
   /** Canonicalize generated ids matching these regexes (default: Stripe-style ids). */
@@ -117,6 +118,8 @@ function stripIgnored(v: Tree, path: string, globs: RegExp[]): Tree | undefined 
 interface NormalStep {
   name: string;
   response: Json;
+  /** url/title/error/text/network/console of a browser step (screenshot excluded), else null. */
+  browser: Json;
   egress: Json[];
   db: Json[];
   events: Json[];
@@ -132,6 +135,16 @@ export function normalizeSession(s: Session, opts: DiffOptions = {}): Normal {
     steps: s.steps.map((st) => ({
       name: st.name,
       response: (st.response ?? null) as Json,
+      browser: st.browser
+        ? ({
+            url: st.browser.url,
+            title: st.browser.title,
+            text: st.browser.text,
+            network: st.browser.network,
+            console: st.browser.console,
+            ...(st.browser.error !== undefined ? { error: st.browser.error } : {}),
+          } as unknown as Json)
+        : null,
       egress: st.egress as unknown as Json[],
       db: st.db as unknown as Json[],
       events: st.events,
@@ -144,6 +157,7 @@ export function normalizeSession(s: Session, opts: DiffOptions = {}): Normal {
     steps: canon.steps.map((st) => ({
       name: st.name,
       response: stripIgnored(st.response, 'response', globs) as Json,
+      browser: (stripIgnored(st.browser, 'browser', globs) ?? null) as Json,
       egress: stripIgnored(st.egress, 'egress', globs) as Json[],
       db: stripIgnored(st.db, 'db', globs) as Json[],
       events: stripIgnored(st.events, 'events', globs) as Json[],
@@ -196,6 +210,7 @@ function identity(v: Json): string {
       return `db:${String(o.table)}:${String(o.op)}:${stable(row?.id ?? null)}`;
     }
     if ('fake' in o && 'method' in o) return `egress:${String(o.fake)}:${String(o.method)}:${String(o.path)}`;
+    if ('resource' in o && 'method' in o) return `net:${String(o.method)}:${String(o.path)}`;
     if ('event' in o) return `event:${String(o.event)}`;
     if ('id' in o) return `id:${stable(o.id!)}`;
   }
@@ -250,6 +265,24 @@ function diffList(a: Json[], b: Json[], path: string, emit: Emit): void {
   flush(a.length, b.length);
 }
 
+/** Browser channel: scalars field-by-field; text lines, requests and console output as aligned lists. */
+function diffBrowser(a: Json, b: Json, emit: Emit): void {
+  if (a === null && b === null) return;
+  if (
+    a === null ||
+    b === null ||
+    typeof a !== 'object' ||
+    typeof b !== 'object' ||
+    Array.isArray(a) ||
+    Array.isArray(b)
+  )
+    return diffValue(a, b, '', emit, false);
+  for (const k of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
+    const list = k === 'text' || k === 'network' || k === 'console';
+    diffValue(a[k], b[k], k, emit, list);
+  }
+}
+
 export function diffSessions(a: Session, b: Session, opts: DiffOptions = {}): DiffResult {
   const na = normalizeSession(a, opts);
   const nb = normalizeSession(b, opts);
@@ -276,6 +309,7 @@ export function diffSessions(a: Session, b: Session, opts: DiffOptions = {}): Di
       continue;
     }
     diffValue(sa.response, sb.response, '', emitter('response'), false);
+    diffBrowser(sa.browser, sb.browser, emitter('browser'));
     diffValue(sa.egress, sb.egress, '', emitter('egress'), true);
     diffValue(sa.db, sb.db, '', emitter('db'), true);
     diffValue(sa.events, sb.events, '', emitter('events'), true);

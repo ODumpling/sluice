@@ -32,6 +32,18 @@ import { docker, dockerStream } from './docker.js';
 
 export const GATEWAY_IMAGE = 'node:22-alpine';
 export const CONTROL_PORT = 9999;
+/**
+ * Playwright version of the sandbox browser. Must equal the playwright-core
+ * client version in @sluice-dev/evidence (checked by a unit test).
+ */
+export const PLAYWRIGHT_VERSION = '1.64.1';
+/** Port `playwright run-server` listens on inside the browser container. */
+export const BROWSER_PORT = 3000;
+/** Service name of the sandbox browser (reserved: a service may not use it). */
+export const BROWSER_SERVICE = 'browser';
+/** Every service is also reachable as `<name>.sluice.internal` (`.internal` is reserved for private use). */
+export const INTERNAL_DOMAIN = 'sluice.internal';
+export const browserImage = (version = PLAYWRIGHT_VERSION): string => `sluice-browser:${version}`;
 const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
 
 export type FakeFactory = (clock: SimClock, seed: number) => Fake;
@@ -137,6 +149,7 @@ export class Sandbox {
   private readonly hostPorts = new Map<string, number>();
   private readonly fakeAddr = new Map<string, number>();
   private started = false;
+  private browserReady: Promise<void> | undefined;
 
   private constructor(opts: SandboxOptions) {
     this.opts = opts;
@@ -166,6 +179,9 @@ export class Sandbox {
 
   private container(svc: string): string {
     return `sluice-${this.id}-${svc}`;
+  }
+  private get browserContainer(): string {
+    return `sluice-${this.id}-${BROWSER_SERVICE}`;
   }
   private get gateway(): string {
     return `sluice-${this.id}-gw`;
@@ -198,6 +214,26 @@ export class Sandbox {
     const p = this.hostPorts.get(`${service}:${port}`);
     if (p === undefined) throw new Error(`port ${service}:${port} is not forwarded (declare it under ports:)`);
     return p;
+  }
+
+  /**
+   * Start the sandbox browser on first use (`sandbox.browser` reserves its
+   * gateway port; the container only starts when a script needs it) and
+   * return its Playwright `run-server` endpoint (host side, through the
+   * gateway) plus the app URL as the browser sees it.
+   */
+  browser(): Promise<{ endpoint: string; baseUrl: string }> {
+    if (!this.spec.browser) return Promise.reject(new Error('sandbox.browser is not enabled in sluice.yaml'));
+    this.browserReady ??= (async () => {
+      await this.ensureBrowserImage();
+      await this.startBrowser();
+    })();
+    // a failed start is retried on the next call
+    this.browserReady.catch(() => (this.browserReady = undefined));
+    return this.browserReady.then(() => ({
+      endpoint: `ws://127.0.0.1:${this.hostPort(BROWSER_SERVICE, BROWSER_PORT)}/`,
+      baseUrl: `http://${this.spec.ingress.service}.${INTERNAL_DOMAIN}:${this.spec.ingress.port}`,
+    }));
   }
 
   get currentSourceRoot(): string {
@@ -294,6 +330,7 @@ export class Sandbox {
     for (const f of this.fakes.values()) await f.stop();
     this.fakes.clear();
     this.started = false;
+    this.browserReady = undefined;
   }
 
   /**
@@ -323,6 +360,8 @@ export class Sandbox {
       await prepareDeterminism(services[s]!, this.images.get(s)!, this.log);
     }
     await this.ensurePulled(GATEWAY_IMAGE);
+    if (this.spec.browser && BROWSER_SERVICE in services)
+      throw new Error(`service name "${BROWSER_SERVICE}" is reserved when sandbox.browser is on`);
 
     // 2. fakes on the host
     const factories = { ...DEFAULT_FAKES, ...this.opts.fakeFactories };
@@ -352,6 +391,11 @@ export class Sandbox {
         forwards.push({ listen, host: s, port: p, publish: true });
         inbound.set(`${s}:${p}`, listen);
       }
+    }
+    if (this.spec.browser) {
+      const listen = next++;
+      forwards.push({ listen, host: BROWSER_SERVICE, port: BROWSER_PORT, publish: true });
+      inbound.set(`${BROWSER_SERVICE}:${BROWSER_PORT}`, listen);
     }
     for (const [name, server] of this.fakes) {
       const listen = next++;
@@ -405,6 +449,73 @@ export class Sandbox {
     }
   }
 
+  private async ensureBrowserImage(): Promise<void> {
+    const custom = this.spec.browser?.image;
+    if (custom) {
+      await this.ensurePulled(custom);
+      return;
+    }
+    const tag = browserImage();
+    if ((await docker(['image', 'inspect', tag], { allowFail: true })).code === 0) return;
+    this.log(`building ${tag} (first use of sandbox.browser; pulls the Playwright image)`);
+    await dockerStream([
+      'build',
+      '-q',
+      '-t',
+      tag,
+      '--label',
+      'sluice.image=1',
+      '--build-arg',
+      `PLAYWRIGHT_VERSION=${PLAYWRIGHT_VERSION}`,
+      join(ASSETS, 'browser'),
+    ]);
+  }
+
+  /**
+   * The browser lives on the internal network only: it reaches the app by
+   * service name and has no route out, so a frontend's third-party requests
+   * fail like the app's would. It is stateless (every run opens a fresh
+   * context), so reset() leaves it running.
+   */
+  private async startBrowser(): Promise<void> {
+    await docker([
+      'run',
+      '-d',
+      '--init',
+      '--name',
+      this.browserContainer,
+      ...this.labels(),
+      '--network',
+      this.internalNet,
+      '--network-alias',
+      BROWSER_SERVICE,
+      '--shm-size',
+      '1g',
+      '--cpus',
+      '2',
+      '--memory',
+      '2g',
+      this.spec.browser?.image ?? browserImage(),
+    ]);
+    const port = this.hostPort(BROWSER_SERVICE, BROWSER_PORT);
+    const timeout = this.opts.readyTimeoutMs ?? 90_000;
+    await waitFor(
+      'sandbox browser (playwright run-server)',
+      async () => {
+        const r = await docker(['inspect', '-f', '{{.State.Running}}', this.browserContainer], { allowFail: true });
+        if (r.stdout.trim() !== 'true') {
+          const out = await docker(['logs', '--tail', '40', this.browserContainer], { allowFail: true });
+          throw new FatalError(`sandbox browser exited during startup:\n${out.stdout}${out.stderr}`);
+        }
+        // any HTTP answer means run-server listens (the gateway drops connections it cannot forward)
+        const res = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(5_000) });
+        await res.arrayBuffer();
+        return true;
+      },
+      timeout,
+    );
+  }
+
   private async ensureImage(name: string, svc: ServiceSpec): Promise<void> {
     if (svc.image) {
       await this.ensurePulled(svc.image);
@@ -448,6 +559,9 @@ export class Sandbox {
       this.internalNet,
       '--network-alias',
       name,
+      // a name the browser can use: bare service names may be HSTS-preloaded TLDs (`app`, `dev`), forcing https
+      '--network-alias',
+      `${name}.${INTERNAL_DOMAIN}`,
       '-w',
       svc.workdir,
       // caps keep a runaway build (e.g. an infinite-loop mutant) from starving the Docker host

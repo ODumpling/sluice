@@ -1,14 +1,17 @@
 /**
  * Recording a session = running a script against a sandboxed build and
- * capturing, per step: the ingress exchange, egress calls the app made to
- * fakes, row-level DB writes, and domain events; plus final fake + DB state.
+ * capturing, per step: the ingress exchange (or, for browser steps, what the
+ * page did), egress calls the app made to fakes, row-level DB writes, and
+ * domain events; plus final fake + DB state.
  * Replay = running the same script against another (or the same) build.
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import pg from 'pg';
+import type { Page } from 'playwright-core';
 import type { Json } from '@sluice-dev/fakes';
 import { Sandbox, type SandboxOptions } from '@sluice-dev/sandbox';
+import { BrowserSession, type BrowserEvidence } from './browser.js';
 import { auditCursor, dumpTables, installAudit, readChanges, type DbChange } from './audit.js';
 import { getPath, interpolate, parseDuration, stepName, type Script } from './script.js';
 
@@ -27,9 +30,11 @@ export interface EgressCall {
 export interface StepEvidence {
   index: number;
   name: string;
-  kind: 'http' | 'advance' | 'clock' | 'check';
+  kind: 'http' | 'browser' | 'advance' | 'clock' | 'check';
   request?: { method: string; path: string; body: Json };
   response?: { status: number; body: Json };
+  /** Browser steps: what the page did (requests, console, URL, visible text, screenshot). */
+  browser?: BrowserEvidence;
   egress: EgressCall[];
   db: DbChange[];
   events: Json[];
@@ -63,6 +68,10 @@ export interface RunOptions {
   vars?: Record<string, Json>;
   /** Called after each step's evidence is collected (assertions, early exit by throwing). */
   afterStep?: (ctx: AfterStepContext) => Promise<void> | void;
+  /** Browser steps: screenshot after every action (default true). */
+  screenshots?: boolean;
+  /** Browser steps: write a Playwright trace zip here (`npx playwright show-trace <file>`). */
+  trace?: string;
 }
 
 export interface AfterStepContext {
@@ -74,6 +83,8 @@ export interface AfterStepContext {
   vars: Record<string, Json>;
   sandbox: Sandbox;
   db: pg.Client | undefined;
+  /** The sandbox browser's page, once a browser step has run. */
+  page: Page | undefined;
 }
 
 async function readBody(res: Response): Promise<Json> {
@@ -93,6 +104,23 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
     ? new pg.Client({ connectionString: sb.databaseUrl, connectionTimeoutMillis: 10_000, query_timeout: 60_000 })
     : undefined;
   await db?.connect();
+  let browser: BrowserSession | undefined;
+  const openBrowser = async (): Promise<BrowserSession> => {
+    if (!sb.spec.browser)
+      throw new Error(`script ${script.name} has browser steps but sandbox.browser is not enabled in sluice.yaml`);
+    const { endpoint, baseUrl } = await sb.browser();
+    browser = await BrowserSession.open({
+      endpoint,
+      baseUrl,
+      nowMs: sb.clock.now(),
+      seed: opts.seed ?? sb.spec.seed,
+      viewport: sb.spec.browser?.viewport,
+      actionTimeoutMs: sb.spec.browser?.actionTimeoutMs,
+      screenshots: opts.screenshots,
+      trace: opts.trace,
+    });
+    return browser;
+  };
   try {
     let cursor = db ? await auditCursor(db) : 0;
     const vars: Record<string, Json> = { ...opts.vars };
@@ -118,14 +146,23 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
         ev.request = { method, path, body: body ?? null };
         ev.response = { status: res.status, body: await readBody(res) };
         for (const [k, p] of Object.entries(step.save ?? {})) vars[k] = (getPath(ev.response, p) ?? null) as Json;
+      } else if ('browser' in step) {
+        ev.kind = 'browser';
+        const b = browser ?? (await openBrowser());
+        const action = interpolate(step.browser as unknown as Json, vars) as unknown as typeof step.browser;
+        const r = await b.run(action, step.save);
+        ev.browser = r.evidence;
+        Object.assign(vars, r.saved);
       } else if ('advance' in step) {
         ev.kind = 'advance';
         await sb.advance(parseDuration(step.advance));
+        await browser?.setClock(sb.clock.now());
       } else if ('check' in step) {
         ev.kind = 'check';
       } else {
         ev.kind = 'clock';
         await sb.setClock(Date.parse(step.clock));
+        await browser?.setClock(sb.clock.now());
       }
       for (const [name, f] of sb.fakes) {
         for (const j of f.journal.slice(journalStart.get(name))) {
@@ -151,7 +188,8 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
         ev.events.push(...(r.events as Json[]));
       }
       steps.push(ev);
-      if (opts.afterStep) await opts.afterStep({ index, step, evidence: ev, steps, vars, sandbox: sb, db });
+      if (opts.afterStep)
+        await opts.afterStep({ index, step, evidence: ev, steps, vars, sandbox: sb, db, page: browser?.page });
     }
 
     const fakes: Record<string, Json> = {};
@@ -171,6 +209,7 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
       contractViolations: violations,
     };
   } finally {
+    await browser?.close();
     await db?.end();
   }
 }

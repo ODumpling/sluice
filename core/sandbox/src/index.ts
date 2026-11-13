@@ -3,6 +3,11 @@ export {
   DEFAULT_FAKES,
   CONTROL_PORT,
   GATEWAY_IMAGE,
+  PLAYWRIGHT_VERSION,
+  BROWSER_PORT,
+  BROWSER_SERVICE,
+  browserImage,
+  INTERNAL_DOMAIN,
   type SandboxOptions,
   type FakeFactory,
 } from './sandbox.js';

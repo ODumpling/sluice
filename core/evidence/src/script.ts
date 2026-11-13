@@ -1,6 +1,6 @@
 /**
  * Scripts are the replayable inputs of a session: HTTP calls against the
- * ingress, and clock moves. Values captured from responses (`save`) can be
+ * ingress, browser actions on the app's frontend, and clock moves. Values captured from responses (`save`) can be
  * referenced later as ${name}.
  */
 import { readFileSync } from 'node:fs';
@@ -28,7 +28,26 @@ export interface CheckStep {
   name?: string;
   check: string;
 }
-export type Step = HttpStep | AdvanceStep | ClockStep | CheckStep;
+/** One Playwright action; selectors are Playwright selectors (CSS, `text=…`, `role=button[name="…"]`, …). */
+export type BrowserAction =
+  | { goto: string }
+  | { click: string }
+  | { fill: string; value: string }
+  | { press: string; key: string }
+  | { select: string; value: string }
+  | { check: string }
+  | { uncheck: string }
+  | { waitFor: string };
+export const BROWSER_ACTIONS = ['goto', 'click', 'fill', 'press', 'select', 'check', 'uncheck', 'waitFor'] as const;
+/** Drive the sandbox browser (needs `sandbox.browser` in sluice.yaml). */
+export interface BrowserStep {
+  name?: string;
+  browser: BrowserAction;
+  /** var name -> selector: saves the element's trimmed text. */
+  save?: Record<string, string>;
+}
+export type Step = HttpStep | BrowserStep | AdvanceStep | ClockStep | CheckStep;
+export const STEP_KINDS = ['http', 'browser', 'advance', 'clock', 'check'] as const;
 
 export interface Script {
   name: string;
@@ -47,6 +66,11 @@ export function parseDuration(v: string | number): number {
 export function stepName(step: Step): string {
   if (step.name) return step.name;
   if ('http' in step) return `${step.http.method.toUpperCase()} ${step.http.path}`;
+  if ('browser' in step) {
+    const a = step.browser as Record<string, string>;
+    const verb = BROWSER_ACTIONS.find((k) => k in a)!;
+    return `browser ${verb} ${a[verb]}`;
+  }
   if ('advance' in step) return `advance ${step.advance}`;
   if ('check' in step) return `check ${step.check}`;
   return `clock ${step.clock}`;
@@ -58,9 +82,10 @@ export function validateScript(raw: unknown, source = 'script'): Script {
     throw new Error(`${source}: a script needs a name and a steps list`);
   }
   s.steps.forEach((st, i) => {
-    const kinds = ['http', 'advance', 'clock', 'check'].filter((k) => k in (st as object));
+    const kinds = STEP_KINDS.filter((k) => k in (st as object));
     if (kinds.length !== 1)
-      throw new Error(`${source}: step ${i + 1} must have exactly one of http/advance/clock/check`);
+      throw new Error(`${source}: step ${i + 1} must have exactly one of ${STEP_KINDS.join('/')}`);
+    if ('browser' in st) validateBrowserAction(st.browser, `${source}: step ${i + 1}`);
     if ('http' in st) {
       if (typeof st.http.method !== 'string' || typeof st.http.path !== 'string' || !st.http.path.startsWith('/')) {
         throw new Error(`${source}: step ${i + 1} http needs method and an absolute path`);
@@ -71,6 +96,23 @@ export function validateScript(raw: unknown, source = 'script'): Script {
       throw new Error(`${source}: step ${i + 1} has invalid clock`);
   });
   return s;
+}
+
+function validateBrowserAction(a: unknown, where: string): void {
+  if (!a || typeof a !== 'object') throw new Error(`${where}: browser needs an action (${BROWSER_ACTIONS.join('/')})`);
+  const o = a as Record<string, unknown>;
+  const verbs = BROWSER_ACTIONS.filter((k) => k in o);
+  if (verbs.length !== 1)
+    throw new Error(
+      `${where}: browser needs exactly one of ${BROWSER_ACTIONS.join('/')}, got ${JSON.stringify(Object.keys(o))}`,
+    );
+  const verb = verbs[0]!;
+  if (typeof o[verb] !== 'string' || !o[verb]) throw new Error(`${where}: browser ${verb} needs a string`);
+  const extra: Record<string, string[]> = { fill: ['value'], select: ['value'], press: ['key'] };
+  for (const k of extra[verb] ?? [])
+    if (o[k] === undefined || o[k] === null) throw new Error(`${where}: browser ${verb} needs ${k}`);
+  const allowed = new Set([verb, ...(extra[verb] ?? [])]);
+  for (const k of Object.keys(o)) if (!allowed.has(k)) throw new Error(`${where}: browser ${verb}: unknown key ${k}`);
 }
 
 export function loadScript(file: string): Script {

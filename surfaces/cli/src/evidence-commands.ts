@@ -1,13 +1,16 @@
-import { join, resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import {
   diffSessions,
   formatDiff,
   loadScript,
   loadSession,
+  renderSessionHtml,
   runScript,
   saveSession,
   startEvidenceSandbox,
   type DiffOptions,
+  type Session,
 } from '@sluice-dev/evidence';
 import type { CommandSpec, PluginContext } from '@sluice-dev/plugin-api';
 import { resolveBuild } from './builds.js';
@@ -18,6 +21,19 @@ const buildOptions = [
   { flags: '--ref <git-ref>', description: 'run a git ref (checked out as a temporary worktree)' },
 ];
 
+const browserOptions = [
+  {
+    flags: '--trace <file>',
+    description: 'browser steps: write a Playwright trace (npx playwright show-trace <file>)',
+  },
+  { flags: '--html <file>', description: 'also write a timeline page: actions → requests → data changes' },
+];
+
+function writeHtml(file: string, s: Session): void {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, renderSessionHtml(s));
+}
+
 function diffOptions(ctx: PluginContext): DiffOptions {
   const ev = (ctx.sluiceConfig?.evidence ?? {}) as { ignore?: string[] };
   return { ignore: ev.ignore ?? [] };
@@ -26,10 +42,11 @@ function diffOptions(ctx: PluginContext): DiffOptions {
 export const recordCommand: CommandSpec = {
   path: ['record'],
   summary: 'Run a script against a sandboxed build and record a behavior session',
-  args: [{ name: 'script', required: true, description: 'script YAML (steps: http / advance / clock)' }],
+  args: [{ name: 'script', required: true, description: 'script YAML (steps: http / browser / advance / clock)' }],
   options: [
     { flags: '-o, --out <file>', description: 'session output (default .sluice/sessions/<name>.json)' },
     ...buildOptions,
+    ...browserOptions,
   ],
   async run({ args, options }, ctx) {
     const { config, root, spec } = loadSandboxSpec(ctx);
@@ -42,13 +59,21 @@ export const recordCommand: CommandSpec = {
       log: (m) => ctx.stderr.write(`sluice: ${m}\n`),
     });
     try {
-      const session = await runScript(sb, script, { label: build.label, sourceRoot: build.sourceRoot });
+      const trace = typeof options.trace === 'string' ? resolve(ctx.cwd, options.trace) : undefined;
+      const session = await runScript(sb, script, { label: build.label, sourceRoot: build.sourceRoot, trace });
       const out =
         typeof options.out === 'string'
           ? resolve(ctx.cwd, options.out)
           : join(root, '.sluice', 'sessions', `${script.name}.json`);
       saveSession(out, session);
       ctx.stdout.write(`recorded ${session.steps.length} steps (${build.label}) -> ${out}\n`);
+      if (typeof options.html === 'string') {
+        writeHtml(resolve(ctx.cwd, options.html), session);
+        ctx.stdout.write(`timeline -> ${resolve(ctx.cwd, options.html)}\n`);
+      }
+      if (trace) ctx.stdout.write(`browser trace -> ${trace} (npx playwright show-trace ${trace})\n`);
+      for (const st of session.steps)
+        if (st.browser?.error) ctx.stderr.write(`step ${st.index + 1} (${st.name}): ${st.browser.error}\n`);
       if (session.contractViolations.length) {
         ctx.stderr.write(`fake contract violations:\n  ${session.contractViolations.join('\n  ')}\n`);
         return 1;
@@ -70,6 +95,7 @@ export const replayCommand: CommandSpec = {
     { flags: '-n, --times <n>', description: 'replay N times (determinism check)', default: '1' },
     { flags: '-o, --out <file>', description: 'write the (last) replayed session' },
     { flags: '--json', description: 'print the diff as JSON' },
+    ...browserOptions,
   ],
   async run({ args, options }, ctx) {
     const { config, root, spec } = loadSandboxSpec(ctx);
@@ -85,11 +111,14 @@ export const replayCommand: CommandSpec = {
     try {
       const times = Number(options.times ?? 1);
       for (let i = 0; i < times; i++) {
+        const last = i === times - 1;
         const replay = await runScript(sb, recorded.script, {
           label: build.label,
           sourceRoot: build.sourceRoot,
           seed: recorded.seed,
+          trace: last && typeof options.trace === 'string' ? resolve(ctx.cwd, options.trace) : undefined,
         });
+        if (last && typeof options.html === 'string') writeHtml(resolve(ctx.cwd, options.html), replay);
         const d = diffSessions(recorded, replay, diffOptions(ctx));
         if (!d.equal) differing++;
         if (options.json) ctx.stdout.write(JSON.stringify(d) + '\n');
@@ -121,5 +150,19 @@ export const diffCommand: CommandSpec = {
     const d = diffSessions(loadSession(resolve(ctx.cwd, args[0]!)), loadSession(resolve(ctx.cwd, args[1]!)), opts);
     ctx.stdout.write(options.json ? JSON.stringify(d, null, 2) + '\n' : formatDiff(d));
     return d.equal ? 0 : 1;
+  },
+};
+
+export const timelineCommand: CommandSpec = {
+  path: ['timeline'],
+  summary: 'Render a recorded session as a timeline page: actions → requests → data changes',
+  args: [{ name: 'session', required: true }],
+  options: [{ flags: '-o, --out <file>', description: 'HTML output (default: <session>.html)' }],
+  run({ args, options }, ctx) {
+    const file = resolve(ctx.cwd, args[0]!);
+    const out = typeof options.out === 'string' ? resolve(ctx.cwd, options.out) : file.replace(/\.json$/, '') + '.html';
+    writeHtml(out, loadSession(file));
+    ctx.stdout.write(`timeline -> ${out}\n`);
+    return 0;
   },
 };

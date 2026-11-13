@@ -6,6 +6,7 @@ import {
   GateStore,
   match,
   parseScenarios,
+  renderHtml,
   renderMarkdown,
   scenarioHash,
   validateScenario,
@@ -47,6 +48,17 @@ describe('scenarios + approvals', () => {
         `id: a1\ntitle: t\nsteps: [{ http: { method: GET, path: / }, expect: { status: 200 } }]\n---\nid: a2\ntitle: t\nsteps: [{ assert: { sql: select 1, rows: [] } }]\n`,
       ),
     ).toHaveLength(2);
+  });
+  it('validates browser steps and their expectations', () => {
+    const ui = (steps: unknown[]) => validateScenario({ id: 'ui', title: 't', steps });
+    expect(() =>
+      ui([{ browser: { goto: '/portal/1' }, expect: { text: 'Status: active', visible: '#cancel', noErrors: true } }]),
+    ).not.toThrow();
+    // an action alone checks something: it fails the scenario when it cannot be performed
+    expect(() => ui([{ browser: { click: '#cancel' } }])).not.toThrow();
+    expect(() => ui([{ browser: { goto: '/' }, expect: { status: 200 } }])).toThrow(/browser expect: unknown status/);
+    expect(() => ui([{ advance: '1d', expect: { status: 200 } }])).toThrow(/only valid on http and browser steps/);
+    expect(() => ui([{ browser: { tap: '#x' } }])).toThrow(/exactly one of goto/);
   });
   it('hash ignores formatting but not semantics', () => {
     expect(scenarioHash(structuredClone(scenario))).toBe(scenarioHash(scenario));
@@ -99,5 +111,36 @@ describe('report rendering', () => {
     expect(md.title).toBe('Sluice Gate failed: 1/1 approved scenarios violated');
     expect(md.summary).toContain('A \\| pipe');
     expect(md.text.length).toBeLessThanOrEqual(65_000);
+    expect(renderHtml(r)).not.toContain('Timeline (head)');
+    r.scenarios[0]!.steps = [
+      {
+        index: 0,
+        name: 'browser click #cancel',
+        kind: 'browser',
+        browser: {
+          action: 'click #cancel',
+          url: '/portal/1',
+          title: 'Portal',
+          text: ['Status: canceled'],
+          network: [{ method: 'POST', path: '/subscriptions/1/cancel', resource: 'fetch', status: 200 }],
+          console: [],
+          screenshot: 'data:image/jpeg;base64,AAAA',
+        },
+        egress: [],
+        db: [
+          {
+            table: 'subscriptions',
+            op: 'UPDATE',
+            old: { id: 1, status: 'active' },
+            new: { id: 1, status: 'canceled' },
+          },
+        ],
+        events: [],
+      },
+    ];
+    const html = renderHtml(r);
+    expect(html).toContain('Timeline (head): frontend → requests → data changes');
+    expect(html).toContain('subscriptions #1 UPDATE status: active → canceled');
+    expect(html).toContain('data:image/jpeg;base64,AAAA');
   });
 });

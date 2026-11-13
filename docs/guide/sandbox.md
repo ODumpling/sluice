@@ -15,6 +15,11 @@ ingress/database/control ports on `127.0.0.1` and forwards
 `http://sluice-gw:<port>` to fakes running in the Sluice process. Tests prove
 `fetch('https://api.stripe.com')` from inside the app fails.
 
+With `sandbox.browser` on, a Playwright Chromium container joins the same
+internal network (started on the first `browser` step); Sluice drives it
+through the gateway and it reaches services as `<name>.sluice.internal`
+([browser guide](/guide/browser)).
+
 ## Determinism
 
 `determinism:` on a service injects a runtime shim. Every mode does the same

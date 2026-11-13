@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { loadConfig } from '@sluice-dev/config';
-import { diffSessions, startEvidenceSandbox, type DiffEntry } from '@sluice-dev/evidence';
+import { diffSessions, startEvidenceSandbox, type DiffEntry, type StepEvidence } from '@sluice-dev/evidence';
 import { isTestFile, languageOf, type Language } from '@sluice-dev/lang';
 import { checkoutRef, git, type Checkout, type Sandbox } from '@sluice-dev/sandbox';
 import { applyMutant, changedLines, generateMutants, selectMutants, type Mutant } from './mutation.js';
@@ -43,6 +43,8 @@ export interface ScenarioReport {
   diff: DiffEntry[];
   basePassed: boolean;
   durationMs: number;
+  /** Head run evidence per step (frontend actions → requests → data changes), for the report timeline. */
+  steps?: StepEvidence[];
 }
 
 /**
@@ -148,7 +150,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
     }
     const scenarios: ScenarioReport[] = [];
     for (const [i, s] of approved.entries()) {
-      const baseRun = await runScenario(sb, s, { sourceRoot: baseProj, label: 'base' });
+      const baseRun = await runScenario(sb, s, { sourceRoot: baseProj, label: 'base', screenshots: false });
       const h = headRuns[i]!;
       scenarios.push({
         id: s.id,
@@ -158,6 +160,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
         diff: diffSessions(baseRun.session, h.session, { ignore: config.evidence?.ignore ?? [], final: true }).entries,
         basePassed: baseRun.passed,
         durationMs: h.durationMs,
+        steps: h.session.steps,
       });
     }
     const failed = scenarios.filter((s) => !s.passed);
@@ -465,7 +468,7 @@ async function attemptMutantScenario(
     },
   });
   try {
-    return { kind: 'ran', run: await runScenario(guarded, scenario, { sourceRoot: tree, label }) };
+    return { kind: 'ran', run: await runScenario(guarded, scenario, { sourceRoot: tree, label, screenshots: false }) };
   } catch (e) {
     if (failedStartup) {
       const full = errorText(startupError);

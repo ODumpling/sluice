@@ -1,0 +1,15 @@
+# A customer cancels from the billing portal (the app's frontend).
+# Record:   sluice record scripts/portal-cancel.yaml --html .sluice/sessions/portal-cancel.html
+# Each browser step records what the page requested and the DB writes, Stripe
+# calls and events that followed, plus a screenshot.
+name: portal-cancel
+steps:
+  - http: { method: POST, path: /customers, body: { email: ada@example.com, name: Ada } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}', plan: pro_monthly } }
+    save: { sub: body.id }
+  - browser: { goto: '/portal/${sub}' }
+  - browser: { click: 'role=button[name="Cancel subscription"]' }
+  - advance: 35d
+  - http: { method: POST, path: /jobs/sync-subscriptions }
+  - browser: { goto: '/portal/${sub}' }
