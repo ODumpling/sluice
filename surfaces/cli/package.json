@@ -35,6 +35,7 @@
     "@sluice-dev/policy": "workspace:*",
     "@sluice-dev/work": "workspace:*",
     "@sluice-dev/plugin-inbox": "workspace:*",
-    "@sluice-dev/plugin-leases": "workspace:*"
+    "@sluice-dev/plugin-leases": "workspace:*",
+    "@sluice-dev/plugin-campaign": "workspace:*"
   }
 }

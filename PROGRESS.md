@@ -156,3 +156,20 @@ decisions, dedupe, answer propagation, notifications), CLI
 | interface-change broadcast                                                   | same file: agent C (lease on `renderReport`, which uses `Invoice`) is notified when A adds `currency`                                                                                                                                   |
 | inbox dedupe + propagation                                                   | same file + `plugins/inbox/test/inbox.test.ts` (two agents' question → one decision; typed answer resumes both tasks)                                                                                                                   |
 | work state machine, SQLite + Postgres                                        | `core/work/test/queue.test.ts`, `core/work/test/queue-postgres.itest.ts` (same suite on Postgres 16)                                                                                                                                    |
+
+## M7 Campaign — done
+
+Delivered: `@sluice-dev/plugin-campaign` (campaign definitions with mandatory
+evidence per step; `copy` / ast-grep `codemod` / `command` apply; tests
+evidence against a side-by-side snapshot of all repos; rule-invariant
+evidence; per-step commits on `campaign/<id>` branches; automatic rollback on
+failure; destructive steps gated and blocked; resumable state;
+`sluice campaign run|status|rollback`), `examples/campaign` (shared-money
+library + checkout + invoices consumers; formatDollars → formatCents).
+Container runner moved to `@sluice-dev/sandbox` (`runInContainer`). ADR-0008.
+
+| Exit criterion                                   | Proof                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| e2e test drives a 3-repo migration to completion | `plugins/campaign/test/campaign.itest.ts` "drives the 3-repo migration to completion…" (expand → codemod migrate ×2 → destructive contract; every step's evidence recorded and passing; contract re-tests all 3 repos)                                                               |
+| injected failure blocks the destructive step     | same file, "an injected failure rolls the failing step back and blocks the destructive step" (codemod misses the 2-arg form → invoices evidence fails → rolled back to its original sha; contract `blocked`; shared-money keeps formatDollars; fixed campaign resumes to completion) |
+| codemod engine                                   | `plugins/campaign/test/codemod.test.ts`                                                                                                                                                                                                                                              |

@@ -38,6 +38,9 @@ importers:
       '@sluice-dev/plugin-bench':
         specifier: workspace:*
         version: link:plugins/bench
+      '@sluice-dev/plugin-campaign':
+        specifier: workspace:*
+        version: link:plugins/campaign
       '@sluice-dev/plugin-gate':
         specifier: workspace:*
         version: link:plugins/gate
@@ -189,6 +192,24 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
+  plugins/campaign:
+    dependencies:
+      '@ast-grep/napi':
+        specifier: ^0.51.2
+        version: 0.51.2
+      '@sluice-dev/plugin-api':
+        specifier: workspace:*
+        version: link:../../core/plugin-api
+      '@sluice-dev/policy':
+        specifier: workspace:*
+        version: link:../../core/policy
+      '@sluice-dev/sandbox':
+        specifier: workspace:*
+        version: link:../../core/sandbox
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+
   plugins/gate:
     dependencies:
       '@sluice-dev/config':
@@ -297,6 +318,9 @@ importers:
       '@sluice-dev/plugin-bench':
         specifier: workspace:*
         version: link:../../plugins/bench
+      '@sluice-dev/plugin-campaign':
+        specifier: workspace:*
+        version: link:../../plugins/campaign
       '@sluice-dev/plugin-gate':
         specifier: workspace:*
         version: link:../../plugins/gate

@@ -1,0 +1,43 @@
+# Expand/contract migration across three repositories:
+# replace the float-based formatDollars() with integer-cents formatCents().
+# Run: sluice campaign run campaign.yaml   (status: sluice campaign status campaign.yaml)
+id: money-to-cents
+title: Migrate every service from formatDollars (float) to formatCents (integer cents)
+repos:
+  - { name: shared-money, path: repos/shared-money }
+  - { name: checkout, path: repos/checkout }
+  - { name: invoices, path: repos/invoices }
+evidenceImage: node:22-alpine
+steps:
+  - id: expand
+    title: Add formatCents next to the deprecated API
+    repos: [shared-money]
+    apply:
+      copy: steps/expand
+    evidence:
+      - tests: node --test test/*.test.js
+        scope: all # every repo must still pass against the new library
+
+  - id: migrate
+    title: Switch call sites to formatCents (codemod)
+    repos: [checkout, invoices]
+    apply:
+      codemod:
+        language: javascript
+        rules:
+          - { pattern: 'formatDollars($A, $OPTS)', rewrite: 'formatCents(Math.round($A * 100), $OPTS)' }
+          - { pattern: 'formatDollars($A)', rewrite: 'formatCents(Math.round($A * 100))' }
+          - { pattern: 'import { formatDollars } from $SRC', rewrite: 'import { formatCents } from $SRC' }
+    evidence:
+      - tests: node --test test/*.test.js
+      - rule: { language: javascript, pattern: 'formatDollars($$$)', expect: none }
+
+  - id: contract
+    title: Remove the deprecated API
+    repos: [shared-money]
+    destructive: true # only after every consumer migrated with evidence
+    apply:
+      copy: steps/contract
+    evidence:
+      - tests: node --test test/*.test.js
+        scope: all

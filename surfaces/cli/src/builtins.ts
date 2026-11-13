@@ -5,9 +5,10 @@ import bench from '@sluice-dev/plugin-bench';
 import rules from '@sluice-dev/plugin-rules';
 import inbox from '@sluice-dev/plugin-inbox';
 import leases from '@sluice-dev/plugin-leases';
+import campaign from '@sluice-dev/plugin-campaign';
 import { corePlugin } from './core-commands.js';
 
 /** Plugins bundled with the CLI. Surfaces may import plugins; core may not. */
 export function builtinPlugins(): SluicePlugin[] {
-  return [corePlugin, hello, gate, bench, rules, inbox, leases];
+  return [corePlugin, hello, gate, bench, rules, inbox, leases, campaign];
 }

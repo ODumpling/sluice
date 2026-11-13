@@ -1,0 +1,27 @@
+{
+  "name": "@sluice-dev/plugin-campaign",
+  "version": "0.1.0",
+  "description": "Multi-repo migration state machine with evidence-gated steps and rollback.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@ast-grep/napi": "^0.51.2",
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/policy": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}

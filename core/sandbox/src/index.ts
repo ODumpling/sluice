@@ -8,3 +8,4 @@ export {
 } from './sandbox.js';
 export { docker, dockerAvailable, DockerError } from './docker.js';
 export { changedLines, checkoutRef, git, type Checkout, type LineRanges } from './git.js';
+export { runInContainer, type TestRun } from './container.js';
