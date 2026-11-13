@@ -32,6 +32,9 @@
     "@sluice-dev/web": "workspace:*",
     "@sluice-dev/plugin-bench": "workspace:*",
     "@sluice-dev/plugin-rules": "workspace:*",
-    "@sluice-dev/policy": "workspace:*"
+    "@sluice-dev/policy": "workspace:*",
+    "@sluice-dev/work": "workspace:*",
+    "@sluice-dev/plugin-inbox": "workspace:*",
+    "@sluice-dev/plugin-leases": "workspace:*"
   }
 }

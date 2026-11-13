@@ -139,3 +139,20 @@ clean on main → adoption; `rules propose|from-pr|prove|check`; MCP
 | rule proven on seeded bad commit       | `plugins/rules/test/rules.test.ts` "proves the right candidate on the seeded bad commit…" (flags `stripe.subscriptions.cancel(...)` in the bad PR, clean on main; wrong/noisy candidates rejected) and the CLI flow (bad PR blocked, good PR passes) |
 
 Command: `pnpm test` (these are hermetic unit tests; no Docker needed).
+
+## M6 Coordination — done
+
+Delivered: `@sluice-dev/work` (task/dependency state machine, atomic claims,
+decision blocking, event log; SQLite default, Postgres optional),
+`@sluice-dev/plugin-leases` (TypeScript language-service symbol index,
+all-or-nothing symbol leases from a branch diff, pre-merge `lease check`,
+interface-change broadcast to dependents), `@sluice-dev/plugin-inbox` (typed
+decisions, dedupe, answer propagation, notifications), CLI
+`sluice work|lease|inbox …`, MCP tools, `examples/coord-demo`. ADR-0007.
+
+| Exit criterion                                                               | Proof                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| two simulated agents editing a shared type get a lease conflict before merge | `plugins/leases/test/coordination.test.ts` "agent B editing the same type gets a lease conflict BEFORE merge" (`lease sync` and pre-merge `lease check` exit 1: `src/types.ts#Invoice is leased by agent-a for T-A`; no partial leases) |
+| interface-change broadcast                                                   | same file: agent C (lease on `renderReport`, which uses `Invoice`) is notified when A adds `currency`                                                                                                                                   |
+| inbox dedupe + propagation                                                   | same file + `plugins/inbox/test/inbox.test.ts` (two agents' question → one decision; typed answer resumes both tasks)                                                                                                                   |
+| work state machine, SQLite + Postgres                                        | `core/work/test/queue.test.ts`, `core/work/test/queue-postgres.itest.ts` (same suite on Postgres 16)                                                                                                                                    |

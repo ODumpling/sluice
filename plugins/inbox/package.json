@@ -1,0 +1,25 @@
+{
+  "name": "@sluice-dev/plugin-inbox",
+  "version": "0.1.0",
+  "description": "Typed decision requests for agents: dedupe, human answers, propagation to blocked tasks.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/work": "workspace:*",
+    "@sluice-dev/config": "workspace:*"
+  }
+}

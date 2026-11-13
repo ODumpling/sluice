@@ -1,0 +1,27 @@
+{
+  "name": "@sluice-dev/plugin-leases",
+  "version": "0.1.0",
+  "description": "Symbol-level leases via a TypeScript language-service index; interface-change broadcast.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/work": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "@sluice-dev/config": "workspace:*",
+    "typescript": "~6.0.3"
+  }
+}

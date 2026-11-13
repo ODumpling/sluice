@@ -75,6 +75,14 @@ export const SluiceConfigSchema = z
     /** Per-plugin configuration keyed by plugin name. */
     pluginConfig: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
     sandbox: SandboxSchema.optional(),
+    /** Work coordination store (tasks, leases, inbox). */
+    work: z
+      .object({
+        /** sqlite file (relative to sluice.yaml) or postgres:// URL. */
+        url: z.string().default('.sluice/state/work.db'),
+      })
+      .strict()
+      .optional(),
     /** Credential broker policy. */
     policy: z
       .object({

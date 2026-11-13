@@ -1,0 +1,27 @@
+{
+  "name": "@sluice-dev/work",
+  "version": "0.1.0",
+  "description": "Persisted task/dependency state machine for multi-agent work (SQLite default, Postgres optional).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "@sluice-dev/sandbox": "workspace:*"
+  }
+}
