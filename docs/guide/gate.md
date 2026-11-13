@@ -119,17 +119,24 @@ syntax (there is no type checker):
 **How a mutant run is judged.** Switching the sandbox to the mutant tree
 restarts the app; then each approved scenario runs until one changes outcome.
 
-- **invalid** — startup failed with compiler output for the mutant's language
-  (Go `file.go:N:M: …` or a `# package` build header, C# `error CSnnnn`). It
-  counts neither as caught nor as survived; the score is caught / (total −
-  invalid). JS/TS mutants are never invalid. If _every_ mutant is invalid the
-  gate fails: `mutation proof inconclusive: all N mutants failed to compile`.
+- **invalid** — startup failed with compiler output for the mutant's language:
+  Go `file.go:N:M: …` or a `# package` build header; C# compiler or analyzer
+  errors (`error CS0103`, `error CA1822`, `error IDE0059`, `error SA1000` …).
+  It counts neither as caught nor as survived. JS/TS mutants are never invalid.
+  If _every_ mutant is invalid the gate fails: `mutation proof inconclusive:
+all N mutants failed to compile`.
 - **caught** — a scenario's outcome changed, or the mutant broke the app: it
-  exited, crashed or never became ready at startup (`log.Fatal`, a panic, an
-  unhandled exception, a readiness timeout), or a request to it was reset,
-  refused, closed or timed out. HTTP 5xx responses are ordinary responses,
-  judged by the scenario's expectations.
-- Any other error — Docker, the database, a fake, Sluice itself — is treated
-  as a sandbox hiccup: the scenario is retried once, and only a second failure
-  counts the mutant as caught (with `sandbox error (after retry)` in the
-  report).
+  exited or crashed at startup (`log.Fatal`, a panic, an unhandled exception),
+  it **did not become ready within the service's readiness timeout** (default
+  90s), or a request to it was reset, refused, closed or timed out. HTTP 5xx
+  responses are ordinary responses, judged by the scenario's expectations.
+- **error** — anything else: Docker, the database, a fake, Sluice itself, or a
+  toolchain problem the mutant cannot cause (NuGet restore `error NU…`, SDK
+  `error NETSDK…`, Go module resolution such as `missing go.sum entry`). The
+  scenario is retried once; if it fails again the mutant is reported `error`
+  — **not tested**, never counted as caught. The gate **fails closed**: any
+  errored mutant makes the verdict fail with `mutation proof inconclusive: N
+mutant runs hit sandbox errors`, so a sandbox that dies mid-proof cannot
+  produce a passing score from untested mutants.
+
+The score is caught / (total − invalid − error).

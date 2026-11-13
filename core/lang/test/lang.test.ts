@@ -76,6 +76,18 @@ describe('@sluice-dev/lang', () => {
     expect(detectToolchain(mk(['Api/Api.csproj']))?.id).toBe('dotnet');
     expect(detectToolchain(mk(['package.json']))?.id).toBe('node');
     expect(detectToolchain(mk(['x.txt']))).toBeUndefined();
+    // tooling-only root package.json next to one Go/.NET project → the project wins
+    expect(detectToolchain(mk(['package.json', 'prettier.config.js', 'backend/go.mod']))).toMatchObject({
+      id: 'go',
+      root: 'backend',
+    });
+    expect(detectToolchain(mk(['package.json', 'Api/Api.csproj', 'Api/wwwroot/site.js']))).toMatchObject({
+      id: 'dotnet',
+      root: 'Api',
+    });
+    // real JS sources at the root keep node
+    expect(detectToolchain(mk(['package.json', 'src/index.ts', 'backend/go.mod']))?.id).toBe('node');
+    expect(detectToolchain(mk(['package.json', 'a/go.mod', 'b/go.mod']))?.id).toBe('node');
     expect(isDependencyManifest('svc/go.sum')).toBe(true);
     expect(isDependencyManifest('src/Api/Api.csproj')).toBe(true);
     expect(isDependencyManifest('Directory.Packages.props')).toBe(true);

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { DeterminismMode, ServiceSpec } from '@sluice-dev/config';
 import { ASSETS } from './common.js';
 import { DOTNET_INIT, DOTNET_MOUNT, dotnetCommand, imageConfig, prepareDotnetShim } from './dotnet.js';
-import { GO_MOUNT, prepareGoShim, prepareGoWarmImage } from './go.js';
+import { GO_MOUNT, goBuildEnv, prepareGoShim, prepareGoWarmImage } from './go.js';
 
 export { DeterminismError, cacheRoot } from './common.js';
 export type { DeterminismMode };
@@ -57,7 +57,9 @@ export interface InjectionContext {
 export async function prepare(svc: ServiceSpec, image: string, log: (m: string) => void): Promise<void> {
   if (svc.determinism === 'go') {
     const shim = await prepareGoShim(image, log);
-    await prepareGoWarmImage(image, shim, svc.workdir, svc.env, log);
+    // build the warm image now unless its env needs sandbox interpolation (then on first run)
+    if (!Object.values(goBuildEnv(svc.env)).some((v) => v.includes('${')))
+      await prepareGoWarmImage(image, shim, svc.workdir, svc.env, log);
   } else if (svc.determinism === 'dotnet') {
     await prepareDotnetShim((await imageConfig(image)).arch, log);
   }
@@ -87,7 +89,7 @@ export async function inject(svc: ServiceSpec, ctx: InjectionContext): Promise<I
       return {
         // the warm image carries the overlay (at GO_MOUNT) and a GOCACHE with the
         // overlaid stdlib; no cache is shared between containers
-        image: await prepareGoWarmImage(ctx.image, shim, svc.workdir, svc.env, ctx.log),
+        image: await prepareGoWarmImage(ctx.image, shim, svc.workdir, ctx.env, ctx.log),
         args: [],
         env: {
           ...sluice,
@@ -111,6 +113,16 @@ export async function inject(svc: ServiceSpec, ctx: InjectionContext): Promise<I
       };
     }
   }
+}
+
+/** Hint appended when a service never becomes ready (e.g. a deadlock the shim's settings can cause). */
+export function readinessHint(svc: ServiceSpec, env: Record<string, string> = svc.env): string | undefined {
+  const w = env.SLUICE_DOTNET_WORKERS;
+  if (svc.determinism !== 'dotnet' || !w || w === '0') return undefined;
+  return (
+    `thread pool capped at ${w} worker(s) by SLUICE_DOTNET_WORKERS; ` +
+    'apps that block on tasks (.Result/.Wait()) can deadlock — unset it'
+  );
 }
 
 /** Hint appended when a shim's control server never comes up. */

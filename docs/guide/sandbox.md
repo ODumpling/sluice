@@ -64,7 +64,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download          # no network at sandbox runtime
 COPY . .
-RUN go build -o /dev/null ./cmd/server   # optional: warms the build cache
+RUN go build -o /dev/null ./cmd/server   # compiles the dependencies into the image's build cache
 CMD ["go", "run", "./cmd/server"]
 ```
 
@@ -91,6 +91,15 @@ copy-on-write layer: code under test (a PR, a mutant) can never put entries
 into a cache that a later base/head run reads. No cache volume is mounted.
 Warm images carry `sluice.image=1` / `sluice.gowarm=1` labels
 (`docker rmi $(docker images -q --filter label=sluice.gowarm=1)`).
+
+Because nothing is cached between containers, every container compiles
+whatever its image doesn't already have cached. Keep the `RUN go build` step
+in the Dockerfile (from a source tree that imports all dependencies): the warm
+image then compiles the module's dependencies with the overlay once, and
+only the mounted packages are rebuilt per start/reset. Without it a large
+dependency tree recompiles on every `reset()`. The warm-up uses the
+service's `GO*`/`CGO_*` env (after `${…}` interpolation), so its cache keys
+match the container's.
 
 What is covered:
 
@@ -125,16 +134,17 @@ server; or a `dotnet <verb>` CLI like `dotnet run`) run with real time; only
 the app process (`dotnet App.dll`, `dotnet exec …`, or the apphost) is
 shimmed (`SLUICE_SHIM_ALL=1` shims everything).
 
-The app process gets **one thread-pool worker**
-(`DOTNET_ThreadPool_ForceMin/MaxWorkerThreads=1`, unless you set them):
-`Random.Shared` is thread-local, so with a single worker request code always
-runs on the same thread and its values are reproducible. Kestrel, `async`
-I/O and Npgsql work unchanged (the billing-demo-dotnet e2e runs this way);
-blocking on tasks in request code (`.Result`, `.Wait()` on work that needs
-another pool thread) deadlocks — set `SLUICE_DOTNET_WORKERS: '0'` in the
-service env to keep the runtime default (then `Random.Shared` is only
-reproducible when the same pool thread happens to serve each request), or a
-number to pick another fixed worker count.
+`Random.Shared` is thread-local, so by default its values (and `new
+Random()` seeds) depend on which thread-pool thread serves a request: seeded,
+but best effort. To make them reproducible, opt in with
+`SLUICE_DOTNET_WORKERS: '1'` in the service `env`: managed app processes
+(never shells or SDK processes, which would hang) then get
+`DOTNET_ThreadPool_ForceMin/MaxWorkerThreads=1` unless they set those
+themselves, so request code always runs on one thread. Kestrel, `async` I/O
+and Npgsql work with it, but request code that blocks on tasks (`.Result`,
+`.Wait()` on work needing another pool thread) deadlocks; a readiness timeout
+then names the cap. Without the opt-in, prefer `Guid` /
+`RandomNumberGenerator`, or inject a `new Random(seed)` you own.
 
 ```dockerfile
 FROM mcr.microsoft.com/dotnet/sdk:10.0
@@ -162,7 +172,7 @@ mounted source is not compiled — use `dotnet run` (or `sh -c 'dotnet build
 | `DateTime.UtcNow` / `Now`, `DateTimeOffset.UtcNow`, `TimeProvider.System.GetUtcNow()`, Kestrel `Date` header | frozen (`clock_gettime(CLOCK_REALTIME*)`, `gettimeofday`, `time`)                                     |
 | `Stopwatch`, `Environment.TickCount64`, timers, `Task.Delay`, timeouts                                       | real (`CLOCK_MONOTONIC`)                                                                              |
 | `Guid.NewGuid`, `Guid.CreateVersion7`, `RandomNumberGenerator.*`, string hash seed                           | seeded (`/dev/urandom` reads incl. `pread`/`readv`, `getrandom`, `getentropy`, OpenSSL `RAND_bytes`)  |
-| `Random.Shared`, `new Random()`                                                                              | seeded; reproducible with the single thread-pool worker (default, see above)                          |
+| `Random.Shared`, `new Random()`                                                                              | seeded; best effort by default, reproducible with `SLUICE_DOTNET_WORKERS: '1'` (see above)            |
 | TLS / key generation inside OpenSSL                                                                          | not deterministic (DRBG nonces)                                                                       |
 | events                                                                                                       | anything written to fd 1 (`Console.WriteLine`, `Console.Out`): synchronous, `Console.Out` autoflushes |
 

@@ -230,7 +230,7 @@ export function detectToolchain(dir: string): DetectedToolchain | undefined {
   if (names.includes('go.mod') || names.includes('go.work')) return at(TOOLCHAINS.go, '.');
   if (names.some((n) => /\.(csproj|fsproj|sln|slnx)$/.test(n)) || names.includes('global.json'))
     return at(TOOLCHAINS.dotnet, '.');
-  if (names.includes('package.json')) return at(TOOLCHAINS.node, '.');
+  const rootPackageJson = names.includes('package.json');
   const go: string[] = [];
   const sln: string[] = [];
   const proj: string[] = [];
@@ -248,10 +248,25 @@ export function detectToolchain(dir: string): DetectedToolchain | undefined {
     }
   }
   const pick = (c: string[]) => (c.length === 1 ? c[0]! : '.');
+  if (rootPackageJson) {
+    // A root package.json that only carries tooling (husky, prettier, …) next to a
+    // single Go/.NET project: prefer the project unless the repo has JS/TS sources.
+    const child = [...go, ...sln, ...proj];
+    if (child.length !== 1 || hasJsSources(dir, child[0]!)) return at(TOOLCHAINS.node, '.');
+  }
   if (go.length) return at(TOOLCHAINS.go, pick(go));
   if (sln.length) return at(TOOLCHAINS.dotnet, pick(sln));
   if (proj.length) return at(TOOLCHAINS.dotnet, pick(proj));
   return undefined;
+}
+
+/** JS/TS source files outside `exclude`, ignoring root-level tool configs (`*.config.*`, dotfiles). */
+function hasJsSources(dir: string, exclude: string): boolean {
+  return listSourceFiles(dir, ['javascript', 'typescript']).some((f) => {
+    const segs = f.split(/[\\/]/);
+    if (segs[0] === exclude) return false;
+    return !(segs.length === 1 && (/\.config\.[cm]?[jt]s$/.test(f) || f.startsWith('.')));
+  });
 }
 
 /** POSIX shell quoting (bare when safe). */

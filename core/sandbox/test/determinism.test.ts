@@ -11,8 +11,10 @@ import {
   parseGoProbe,
   parseGoVersion,
   patchGoFile,
+  readinessHint,
   type GoProbe,
 } from '../src/determinism/index.js';
+import { parseConfig } from '@sluice-dev/config';
 import { goAssets, goBuildEnv, goWarmDockerfile } from '../src/determinism/go.js';
 
 // Excerpts of the real GOROOT sources (go1.27) around each patch point.
@@ -219,6 +221,19 @@ describe('dotnet shim', () => {
       'run',
     ]);
     expect(() => dotnetCommand({ arch: 'amd64', entrypoint: [], cmd: [] }, undefined)).toThrow(DeterminismError);
+  });
+
+  it('hints at the thread-pool cap when a capped dotnet service never gets ready', () => {
+    const svc = (env: Record<string, string>, determinism: 'dotnet' | 'go' = 'dotnet') =>
+      parseConfig(
+        `sandbox:\n  services:\n    app: { build: ., determinism: ${determinism}, env: ${JSON.stringify(env)} }\n  ingress: { service: app, port: 1 }\n`,
+      ).sandbox!.services.app!;
+    expect(readinessHint(svc({}))).toBeUndefined();
+    expect(readinessHint(svc({ SLUICE_DOTNET_WORKERS: '0' }))).toBeUndefined();
+    expect(readinessHint(svc({ SLUICE_DOTNET_WORKERS: '1' }, 'go'))).toBeUndefined();
+    expect(readinessHint(svc({ SLUICE_DOTNET_WORKERS: '1' }))).toBe(
+      'thread pool capped at 1 worker(s) by SLUICE_DOTNET_WORKERS; apps that block on tasks (.Result/.Wait()) can deadlock — unset it',
+    );
   });
 
   it('builds a static init plus a preload library per libc', () => {

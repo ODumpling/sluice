@@ -27,8 +27,10 @@ Default toolchain images: `node:22-alpine`, `golang:1.27-alpine`,
   prebuilt binary isn't shimmed) and to link `net/http`. Map iteration order
   and `crypto/*` key generation stay nondeterministic.
 - **.NET determinism**: wall clock, `Guid`, `RandomNumberGenerator` are
-  deterministic; see the [sandbox guide](/guide/sandbox#dotnet) for
-  `Random.Shared`. Emit events with `Console.WriteLine` (the `ILogger` console
+  deterministic; `Random.Shared` / `new Random()` are seeded but best effort
+  (thread-local) unless the service opts in with `SLUICE_DOTNET_WORKERS: '1'`
+  (one thread-pool worker; apps that block on tasks can deadlock), see the
+  [sandbox guide](/guide/sandbox#dotnet). Emit events with `Console.WriteLine` (the `ILogger` console
   provider is asynchronous).
 - **Go/C# symbol resolution** is syntactic (no type checker): see the
   precision notes in the [coordination guide](/guide/coordination).

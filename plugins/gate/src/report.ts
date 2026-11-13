@@ -23,12 +23,16 @@ function diffLabel(e: DiffEntry): string {
   return `${e.channel}${e.path.startsWith('[') || !e.path ? '' : '.'}${e.path}`;
 }
 
-/** Mutants that built and started (the score's denominator). */
-const validMutants = (m: GateReport['mutation']) => m.total - (m.invalid ?? 0);
+/** Mutants actually tested (the score's denominator): not invalid, not errored. */
+const validMutants = (m: GateReport['mutation']) => m.total - (m.invalid ?? 0) - (m.errored ?? 0);
 
-/** " (2 more did not compile, not scored)" or "". */
+/** " (2 more did not compile, 1 hit a sandbox error; not scored)" or "". */
 function invalidNote(m: GateReport['mutation']): string {
-  return m.invalid ? ` (${m.invalid} more did not compile, not scored)` : '';
+  const parts = [
+    m.invalid ? `${m.invalid} more did not compile` : '',
+    m.errored ? `${m.errored} ${m.invalid ? '' : 'more '}hit a sandbox error` : '',
+  ].filter(Boolean);
+  return parts.length ? ` (${parts.join(', ')}; not scored)` : '';
 }
 
 const mutantStatus = (m: GateReport['mutation']['mutants'][number]) => m.status ?? (m.killed ? 'killed' : 'survived');
@@ -115,7 +119,9 @@ export function renderMarkdown(
             ? `✅ \`${m.killedBy}\``
             : mutantStatus(m) === 'invalid'
               ? '⛔ invalid — did not compile (not scored)'
-              : '⚠️ survived'
+              : mutantStatus(m) === 'error'
+                ? '🛑 sandbox error — not tested (not scored; fails the gate)'
+                : '⚠️ survived'
         } |`,
       );
     }
@@ -165,7 +171,7 @@ code{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:brea
 table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600}tr.added td{background:var(--add)}tr.removed td{background:var(--rem)}tr.changed td{background:var(--chg)}
 .table-wrap{overflow-x:auto}summary{cursor:pointer;color:var(--muted)}ul.reasons{padding-left:18px}
-.killed{color:var(--pass);font-weight:600}.survived{color:var(--fail);font-weight:600}.invalid{color:var(--muted);font-weight:600}pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);padding:10px;border-radius:8px}
+.killed{color:var(--pass);font-weight:600}.survived{color:var(--fail);font-weight:600}.invalid{color:var(--muted);font-weight:600}.error{color:var(--fail);font-weight:600}pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);padding:10px;border-radius:8px}
 </style></head><body><main>
 <div class="verdict ${r.verdict}"><h1>${r.verdict === 'pass' ? '✔ Gate open' : '✘ Gate closed'} — ${esc(r.ticket.id)}</h1><p>${esc(headline(r))}</p></div>
 <p class="meta">Ticket: <b>${esc(r.ticket.title)}</b> · base <code>${esc(r.base.ref)}@${r.base.sha.slice(0, 8)}</code> → head <code>${esc(r.head.ref)}@${r.head.sha.slice(0, 8)}</code> · ${(r.durationMs / 1000).toFixed(1)}s</p>
@@ -181,7 +187,7 @@ ${
     : ''
 }
 <h2>Mutation proof</h2>
-<p>${m.enabled ? `Sluice deliberately broke the changed code ${validMutants(m)} way${validMutants(m) === 1 ? '' : 's'}; the approved checks caught <b>${m.killed}</b>${m.score === null ? '' : ` (${Math.round(m.score * 100)}%, threshold ${Math.round(m.threshold * 100)}%)`}.${m.invalid ? ` ${m.invalid} more mutant${m.invalid === 1 ? '' : 's'} did not compile and ${m.invalid === 1 ? 'is' : 'are'} not scored.` : ''}` : 'Disabled.'}</p>
+<p>${m.enabled ? `Sluice deliberately broke the changed code ${validMutants(m)} way${validMutants(m) === 1 ? '' : 's'}; the approved checks caught <b>${m.killed}</b>${m.score === null ? '' : ` (${Math.round(m.score * 100)}%, threshold ${Math.round(m.threshold * 100)}%)`}.${m.invalid ? ` ${m.invalid} more mutant${m.invalid === 1 ? '' : 's'} did not compile and ${m.invalid === 1 ? 'is' : 'are'} not scored.` : ''}${m.errored ? ` ${m.errored} mutant run${m.errored === 1 ? '' : 's'} hit sandbox errors and ${m.errored === 1 ? 'was' : 'were'} not tested, so the proof is inconclusive.` : ''}` : 'Disabled.'}</p>
 ${
   m.mutants.length
     ? `<div class="table-wrap"><table><thead><tr><th>where</th><th>mutation</th><th>result</th></tr></thead><tbody>${m.mutants
@@ -192,7 +198,9 @@ ${
                 ? `<span class="killed">caught</span> by <code>${esc(x.killedBy)}</code>`
                 : mutantStatus(x) === 'invalid'
                   ? `<span class="invalid">invalid</span> — did not compile (not scored)${x.detail ? `<details><summary>output</summary><pre>${esc(x.detail)}</pre></details>` : ''}`
-                  : '<span class="survived">survived</span>'
+                  : mutantStatus(x) === 'error'
+                    ? `<span class="error">sandbox error</span> — not tested (not scored)${x.detail ? `<details><summary>output</summary><pre>${esc(x.detail)}</pre></details>` : ''}`
+                    : '<span class="survived">survived</span>'
             }</td></tr>`,
         )
         .join('')}</tbody></table></div>`

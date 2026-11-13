@@ -205,6 +205,11 @@ export async function runInContainer(
         stdio: ['pipe', 'pipe', 'pipe'],
       },
     );
+    // docker may exit (deadline kill, daemon hiccup) before tar finishes: a broken
+    // pipe is expected then and must not crash the host process.
+    run.stdin.on('error', () => {});
+    tar.stdout.on('error', () => {});
+    tar.on('error', () => {});
     tar.stdout.pipe(run.stdin);
     let out = '';
     const on = (d: Buffer) => {

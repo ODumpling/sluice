@@ -79,6 +79,28 @@ describe('runMutantScenario', () => {
     expect((await runMutantScenario(failingReset(out), scenario, '/t', 'm', { language: 'go' })).kind).toBe('broken');
   });
 
+  it('C# analyzer errors are invalid; restore/SDK errors are sandbox errors', async () => {
+    for (const code of ['CA1822', 'IDE0059', 'SA1000']) {
+      const out = exited(`/app/src/Billing.cs(3,5): error ${code}: Member can be static [/app/BillingDemo.csproj]`);
+      expect((await runMutantScenario(failingReset(out), scenario, '/t', 'm', { language: 'csharp' })).kind, code).toBe(
+        'invalid',
+      );
+    }
+    for (const line of [
+      '/app/BillingDemo.csproj : error NU1101: Unable to find package Npgsql',
+      '/usr/share/dotnet/sdk/10.0.100/Sdks/Microsoft.NET.Sdk/targets/x.targets(5,5): error NETSDK1045: The current .NET SDK does not support net11.0',
+      // a failed restore also produces compiler errors: still not the mutant's fault
+      '/app/BillingDemo.csproj : error NU1301: Unable to load the service index\n/app/src/Db.cs(1,7): error CS0246: Npgsql not found',
+    ]) {
+      const sb = failingReset(exited(line));
+      const r = await runMutantScenario(sb, scenario, '/t', 'm', { language: 'csharp' });
+      expect(r.kind, line).toBe('error');
+      expect(sb.resets).toHaveLength(2);
+    }
+    const goMod = exited('src/db.go:5:2: no required module provides package github.com/jackc/pgx/v5');
+    expect((await runMutantScenario(failingReset(goMod), scenario, '/t', 'm', { language: 'go' })).kind).toBe('error');
+  });
+
   it('JS/TS startup failures, crashes and readiness timeouts are killed, not invalid', async () => {
     const cases: [string, Parameters<typeof runMutantScenario>[4]][] = [
       [exited('/app/src/x.ts:3:5: SyntaxError: Unexpected token'), { language: 'typescript' }],
@@ -94,7 +116,7 @@ describe('runMutantScenario', () => {
     }
   });
 
-  it('a startup sandbox error is retried once, then counted as killed', async () => {
+  it('a startup sandbox error is retried once, then reported as error (never killed)', async () => {
     let n = 0;
     const flaky = fakeSandbox(async () => {
       if (n++ === 0) throw new Error('docker run failed: Cannot connect to the Docker daemon');
@@ -108,7 +130,7 @@ describe('runMutantScenario', () => {
     const down = failingReset('docker run failed: Cannot connect to the Docker daemon');
     const r = await runMutantScenario(down, scenario, '/t', 'm', { language: 'go' });
     expect(r).toEqual({
-      kind: 'broken',
+      kind: 'error',
       detail: 'sandbox error (after retry): docker run failed: Cannot connect to the Docker daemon',
     });
     expect(down.resets).toHaveLength(2);
@@ -147,23 +169,40 @@ describe('runMutantScenario', () => {
 
 describe('mutationOutcome', () => {
   const st = (...s: MutantReport['status'][]) => s.map((status) => ({ status }));
-  it('scores valid mutants only', () => {
-    expect(mutationOutcome(st('killed', 'survived', 'invalid'), 0.4)).toEqual({ killed: 1, invalid: 1, score: 0.5 });
-    expect(mutationOutcome([], 0.8)).toEqual({ killed: 0, invalid: 0, score: null });
+  it('scores tested mutants only', () => {
+    expect(mutationOutcome(st('killed', 'survived', 'invalid'), 0.4)).toEqual({
+      killed: 1,
+      invalid: 1,
+      errored: 0,
+      score: 0.5,
+      reasons: [],
+    });
+    expect(mutationOutcome([], 0.8)).toEqual({ killed: 0, invalid: 0, errored: 0, score: null, reasons: [] });
   });
   it('too weak only when nothing else fails the gate', () => {
-    expect(mutationOutcome(st('killed', 'survived', 'invalid'), 0.8).reason).toBe(
+    expect(mutationOutcome(st('killed', 'survived', 'invalid'), 0.8).reasons).toEqual([
       'checks too weak: only 1/2 deliberately broken versions were caught (threshold 80%; 1 mutant did not compile and is excluded)',
-    );
-    expect(mutationOutcome(st('survived'), 0.8, { othersFailing: true }).reason).toBeUndefined();
+    ]);
+    expect(mutationOutcome(st('survived'), 0.8, { othersFailing: true }).reasons).toEqual([]);
   });
   it('all invalid is inconclusive: the gate fails', () => {
-    expect(mutationOutcome(st('invalid', 'invalid'), 0.8)).toEqual({
-      killed: 0,
-      invalid: 2,
-      score: null,
-      reason: 'mutation proof inconclusive: all 2 mutants failed to compile',
+    expect(mutationOutcome(st('invalid', 'invalid'), 0.8).reasons).toEqual([
+      'mutation proof inconclusive: all 2 mutants failed to compile',
+    ]);
+  });
+  it('fails closed on sandbox errors: an untested mutant never counts as caught', () => {
+    // Docker died after the baseline: 1 real kill + 3 untested must not read as 100%
+    const o = mutationOutcome(st('killed', 'error', 'error', 'error'), 0.8);
+    expect(o).toEqual({
+      killed: 1,
+      invalid: 0,
+      errored: 3,
+      score: 1,
+      reasons: ['mutation proof inconclusive: 3 mutant runs hit sandbox errors'],
     });
+    expect(mutationOutcome(st('error'), 0.8, { othersFailing: true }).reasons).toEqual([
+      'mutation proof inconclusive: 1 mutant run hit sandbox errors',
+    ]);
   });
 });
 
@@ -181,12 +220,12 @@ const mutant = (status: MutantReport['status'], extra: Partial<MutantReport> = {
 
 /** A report as runGate assembles it (verdict from the mutation outcome alone). */
 function report(mutants: MutantReport[]): GateReport {
-  const { killed, invalid, score, reason } = mutationOutcome(mutants, 0.4);
+  const { killed, invalid, errored, score, reasons } = mutationOutcome(mutants, 0.4);
   return {
     format: 'sluice-gate-report/1',
     ticket: { id: 'T', title: 'Title', spec: 's' },
-    verdict: reason ? 'fail' : 'pass',
-    reasons: reason ? [reason] : [],
+    verdict: reasons.length ? 'fail' : 'pass',
+    reasons,
     base: { ref: 'main', sha: 'a'.repeat(40) },
     head: { ref: 'pr', sha: 'b'.repeat(40) },
     approvals: [],
@@ -198,6 +237,7 @@ function report(mutants: MutantReport[]): GateReport {
       total: mutants.length,
       killed,
       invalid,
+      errored,
       score,
       mutants,
     },
@@ -216,7 +256,7 @@ describe('report: invalid mutants', () => {
   it('excludes them from the score in every format', () => {
     expect(headline(r)).toContain('mutation 1/2');
     expect(renderText(r)).toContain(
-      'mutation proof: 1/2 deliberately broken versions caught (1 more did not compile, not scored)',
+      'mutation proof: 1/2 deliberately broken versions caught (1 more did not compile; not scored)',
     );
     const md = renderMarkdown(r);
     expect(md.summary).toContain('1/2 deliberately broken versions');
@@ -235,7 +275,22 @@ describe('report: invalid mutants', () => {
     expect(all.verdict).toBe('fail');
     expect(headline(all)).toBe('Sluice Gate failed: mutation proof inconclusive: all 2 mutants failed to compile');
     expect(r.verdict).toBe('pass');
-    expect(renderText(all)).toContain('0/0 deliberately broken versions caught (2 more did not compile, not scored)');
+    expect(renderText(all)).toContain('0/0 deliberately broken versions caught (2 more did not compile; not scored)');
+  });
+
+  it('sandbox errors: shown, not scored, and the gate fails', () => {
+    const e = report([
+      mutant('killed', { killedBy: 'ticks' }),
+      mutant('error', { detail: 'sandbox error (after retry): Cannot connect to the Docker daemon' }),
+    ]);
+    expect(e.verdict).toBe('fail');
+    expect(e.reasons).toEqual(['mutation proof inconclusive: 1 mutant run hit sandbox errors']);
+    expect(renderText(e)).toContain('1/1 deliberately broken versions caught (1 more hit a sandbox error; not scored)');
+    expect(renderMarkdown(e).text).toContain('🛑 sandbox error — not tested (not scored; fails the gate)');
+    const html = renderHtml(e);
+    expect(html).toContain('<span class="error">sandbox error</span>');
+    expect(html).toContain('Cannot connect to the Docker daemon');
+    expect(html).toContain('1 mutant run hit sandbox errors and was not tested');
   });
 
   it('reads reports written before mutant status existed', () => {

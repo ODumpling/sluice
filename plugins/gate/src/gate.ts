@@ -42,9 +42,11 @@ export interface ScenarioReport {
 /**
  * killed: a scenario's outcome changed, or the mutant app crashed / failed to
  * start; survived: nothing changed; invalid: the mutant did not compile (Go/C#
- * compiler errors only; excluded from the score).
+ * compiler errors only); error: the sandbox failed (Docker, database, fakes,
+ * restore…) even after a retry, so the mutant was not actually tested.
+ * invalid and error are excluded from the score; any error fails the gate.
  */
-export type MutantStatus = 'killed' | 'survived' | 'invalid';
+export type MutantStatus = 'killed' | 'survived' | 'invalid' | 'error';
 
 export interface MutantReport extends Omit<Mutant, 'start' | 'end'> {
   status: MutantStatus;
@@ -67,12 +69,14 @@ export interface GateReport {
   mutation: {
     enabled: boolean;
     threshold: number;
-    /** Mutants run, including invalid ones. */
+    /** Mutants run, including invalid and errored ones. */
     total: number;
     killed: number;
     /** Mutants that did not compile; not in the score's denominator. */
     invalid?: number;
-    /** killed / (total - invalid); null when no valid mutant ran. */
+    /** Mutants whose runs hit sandbox errors; not in the score's denominator (and the gate fails). */
+    errored?: number;
+    /** killed / (total - invalid - errored); null when no valid mutant ran. */
     score: number | null;
     mutants: MutantReport[];
   };
@@ -191,8 +195,8 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
               language: languageOf(m.file),
               log,
             });
-            if (r.kind === 'invalid') {
-              report.status = 'invalid';
+            if (r.kind === 'invalid' || r.kind === 'error') {
+              report.status = r.kind;
               report.detail = r.detail;
               break;
             }
@@ -215,17 +219,20 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
                 ? `killed by ${report.killedBy}`
                 : report.status === 'invalid'
                   ? `INVALID (does not compile): ${gist(report.detail)}`
-                  : 'SURVIVED'
+                  : report.status === 'error'
+                    ? `ERROR (sandbox failed, not tested): ${gist(report.detail)}`
+                    : 'SURVIVED'
             }`,
           );
           mutants.push(report);
         }
       }
     }
-    const { killed, invalid, score, reason } = mutationOutcome(mutants, mcfg.threshold, {
+    const outcome = mutationOutcome(mutants, mcfg.threshold, {
       othersFailing: failed.length > 0 || reasons.length > 0,
     });
-    if (reason) reasons.push(reason);
+    const { killed, invalid, errored, score } = outcome;
+    reasons.push(...outcome.reasons);
 
     // ---------------------------------------------------------------- unit tests (informational)
     let unitTests: GateReport['unitTests'];
@@ -269,6 +276,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
         total: mutants.length,
         killed,
         invalid,
+        errored,
         score,
         mutants,
       },
@@ -284,40 +292,60 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
 }
 
 /**
- * Score and verdict reason of a mutation proof. Invalid (non-compiling)
- * mutants are left out of the score; if every mutant was invalid the proof is
- * inconclusive and the gate fails rather than passing on no evidence. "Too
- * weak" is only reported when nothing else already fails the gate.
+ * Score and verdict reasons of a mutation proof. Invalid (non-compiling) and
+ * errored (sandbox failure) mutants are left out of the score. Fail-closed:
+ * any errored mutant makes the proof inconclusive (an untested mutant must
+ * not look caught), as does every mutant being invalid. "Too weak" is only
+ * reported when nothing else already fails the gate.
  */
 export function mutationOutcome(
   mutants: Pick<MutantReport, 'status'>[],
   threshold: number,
   opts: { othersFailing?: boolean } = {},
-): { killed: number; invalid: number; score: number | null; reason?: string } {
-  const killed = mutants.filter((m) => m.status === 'killed').length;
-  const invalid = mutants.filter((m) => m.status === 'invalid').length;
-  const valid = mutants.length - invalid;
+): { killed: number; invalid: number; errored: number; score: number | null; reasons: string[] } {
+  const count = (st: MutantStatus) => mutants.filter((m) => m.status === st).length;
+  const killed = count('killed');
+  const invalid = count('invalid');
+  const errored = count('error');
+  const valid = mutants.length - invalid - errored;
   const score = valid ? killed / valid : null;
-  let reason: string | undefined;
-  if (mutants.length && !valid)
-    reason = `mutation proof inconclusive: all ${mutants.length} mutant${mutants.length === 1 ? '' : 's'} failed to compile`;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const reasons: string[] = [];
+  if (errored) reasons.push(`mutation proof inconclusive: ${plural(errored, 'mutant run')} hit sandbox errors`);
+  else if (mutants.length && !valid)
+    reasons.push(`mutation proof inconclusive: all ${plural(mutants.length, 'mutant')} failed to compile`);
   else if (!opts.othersFailing && score !== null && score < threshold)
-    reason = `checks too weak: only ${killed}/${valid} deliberately broken versions were caught (threshold ${Math.round(threshold * 100)}%${invalid ? `; ${invalid} mutant${invalid === 1 ? '' : 's'} did not compile and ${invalid === 1 ? 'is' : 'are'} excluded` : ''})`;
-  return { killed, invalid, score, ...(reason ? { reason } : {}) };
+    reasons.push(
+      `checks too weak: only ${killed}/${valid} deliberately broken versions were caught (threshold ${Math.round(threshold * 100)}%${invalid ? `; ${plural(invalid, 'mutant')} did not compile and ${invalid === 1 ? 'is' : 'are'} excluded` : ''})`,
+    );
+  return { killed, invalid, errored, score, reasons };
 }
 
 /**
  * ran: the scenario completed (compare its outcome to head's); invalid: the
  * mutant does not compile; broken: the mutant app crashed, exited or never got
- * ready, or broke a request (killed).
+ * ready, or broke a request (killed); error: the sandbox failed twice (not tested).
  */
 export type MutantRun =
-  { kind: 'ran'; run: ScenarioRun } | { kind: 'invalid'; detail: string } | { kind: 'broken'; detail: string };
+  | { kind: 'ran'; run: ScenarioRun }
+  | { kind: 'invalid'; detail: string }
+  | { kind: 'broken'; detail: string }
+  | { kind: 'error'; detail: string };
 
 /** Compiler error output of a service that builds at startup (`go build` / `dotnet build`). */
 const COMPILE_ERROR: Partial<Record<Language, RegExp>> = {
   go: /\.go:\d+:\d+: |^# \S+\s*$/m,
-  csharp: /\berror CS\d{4}\b/,
+  // compiler (CSnnnn) and analyzer errors (CA1822, IDE0059, SA1000…); not restore/SDK (NU…, NETSDK…)
+  csharp: /\berror CS\d{4}\b|: error (?!NU\d|NETSDK\d)[A-Z]{2,}\d{3,5}: /,
+};
+
+/**
+ * Toolchain failures a source mutant cannot cause (dependency restore, SDK,
+ * module download): a sandbox problem, not the mutant's.
+ */
+const TOOLCHAIN_ERROR: Partial<Record<Language, RegExp>> = {
+  go: /no required module provides package|missing go\.sum entry|module lookup disabled|^go: .*(dial tcp|: reading )/m,
+  csharp: /: error (NU|NETSDK)\d+: /,
 };
 
 /** The app process itself failed to come up (exit, crash, never ready). */
@@ -367,9 +395,9 @@ type Attempt = MutantRun | { kind: 'sandbox'; detail: string };
  * - after startup, a request to the app is reset/refused/closed or times out
  *   → `broken` (killed); HTTP 5xx are ordinary responses, judged by the
  *   scenario's expectations;
- * - anything else (Docker, the database, fakes, Sluice itself) is a sandbox
- *   error: the scenario is retried once, and counts as `broken` only if it
- *   fails again.
+ * - anything else (Docker, the database, fakes, dependency restore, Sluice
+ *   itself) is a sandbox error: the scenario is retried once; a second
+ *   failure is `error` — not tested, never counted as caught.
  */
 export async function runMutantScenario(
   sb: Sandbox,
@@ -382,8 +410,9 @@ export async function runMutantScenario(
   if (first.kind !== 'sandbox') return first;
   opts.log?.(`  ${label}: sandbox error, retrying ${scenario.id}: ${firstLine(first.detail)}`);
   const second = await attemptMutantScenario(sb, scenario, tree, label, opts.language);
+  // fail closed: an untested mutant is never counted as caught
   return second.kind === 'sandbox'
-    ? { kind: 'broken', detail: `sandbox error (after retry): ${second.detail}` }
+    ? { kind: 'error', detail: `sandbox error (after retry): ${second.detail}` }
     : second;
 }
 
@@ -419,6 +448,8 @@ async function attemptMutantScenario(
       const full = errorText(startupError);
       const detail = startupDetail(startupError);
       const compile = language && COMPILE_ERROR[language];
+      const toolchain = language && TOOLCHAIN_ERROR[language];
+      if (toolchain && toolchain.test(full)) return { kind: 'sandbox', detail };
       if (compile && compile.test(full)) return { kind: 'invalid', detail };
       if (APP_STARTUP_FAILURE.test(full)) return { kind: 'broken', detail: `app did not start: ${detail}` };
       return { kind: 'sandbox', detail };

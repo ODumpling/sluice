@@ -52,6 +52,17 @@ describe('dotnet preload (native)', () => {
             'echo "sdk-verb $(/opt/dn/dotnet build)"',
             'echo "app-sdk-dir $(/opt/dn/dotnet /work/sdk/App.dll)"',
             'echo "app-exec $(/opt/dn/dotnet exec /work/App.dll)"',
+            // thread-pool cap: opt-in, app processes only, never leaked into SDK processes
+            'mkdir -p /work/bin && cp /tmp/pt /work/bin/App && touch /work/bin/App.dll',
+            'echo "default-app $(/opt/dn/dotnet /work/App.dll)"',
+            'export SLUICE_DOTNET_WORKERS=1',
+            'echo "cap-app $(/opt/dn/dotnet /work/App.dll)"',
+            'echo "cap-apphost $(/work/bin/App x)"',
+            `echo "cap-sh-sdk $(sh -c '/opt/dn/dotnet /opt/dn/sdk/9.9.9/MSBuild.dll')"`,
+            `echo "cap-sh-verb $(sh -c '/opt/dn/dotnet build')"`,
+            'echo "cap-app-then-sdk $(/opt/dn/dotnet /work/App.dll then /opt/dn/dotnet build | tr "\\n" " ")"',
+            `echo "cap-app-then-sh $(/opt/dn/dotnet /work/App.dll then /bin/sh -c '/opt/dn/dotnet /opt/dn/sdk/9.9.9/MSBuild.dll' | tr "\\n" " ")"`,
+            'echo "cap-user $(DOTNET_ThreadPool_ForceMaxWorkerThreads=4 /opt/dn/dotnet /work/App.dll then /opt/dn/dotnet build | tr "\\n" " ")"',
           ].join('\n'),
         ],
         { allowFail: true, timeoutMs: 600_000 },
@@ -64,11 +75,21 @@ describe('dotnet preload (native)', () => {
       expect(seeded[1]).toBe(seeded[0]); // same seed → same bytes
       expect(seeded[2]).not.toBe(seeded[0]); // new seed → new bytes
       // SDK processes keep the real clock; apps (even under a dir named sdk) are shimmed
-      expect(out).toContain('sdk-msbuild frozen 0');
-      expect(out).toContain('sdk-symlink frozen 0');
-      expect(out).toContain('sdk-verb frozen 0');
-      expect(out).toContain('app-sdk-dir frozen 1');
-      expect(out).toContain('app-exec frozen 1');
+      expect(out).toContain('sdk-msbuild frozen 0 cap -');
+      expect(out).toContain('sdk-symlink frozen 0 cap -');
+      expect(out).toContain('sdk-verb frozen 0 cap -');
+      expect(out).toContain('app-sdk-dir frozen 1 cap -');
+      expect(out).toContain('app-exec frozen 1 cap -');
+      // the cap is opt-in, applies to app processes only and never reaches SDK processes
+      expect(out).toContain('default-app frozen 1 cap -');
+      expect(out).toContain('cap-app frozen 1 cap 1');
+      expect(out).toContain('cap-apphost frozen 1 cap 1');
+      expect(out).toContain('cap-sh-sdk frozen 0 cap -');
+      expect(out).toContain('cap-sh-verb frozen 0 cap -');
+      expect(out).toContain('cap-app-then-sdk frozen 1 cap 1 frozen 0 cap - ');
+      expect(out).toContain('cap-app-then-sh frozen 1 cap 1 frozen 0 cap - ');
+      // values set by the app/service itself are left alone
+      expect(out).toContain('cap-user frozen 1 cap 4 frozen 0 cap 4 ');
     });
   }
 });

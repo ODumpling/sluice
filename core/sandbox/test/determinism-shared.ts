@@ -8,7 +8,7 @@ import type { Sandbox } from '@sluice-dev/sandbox';
 export const DAY = 86_400_000;
 export const FIXTURES = join(import.meta.dirname, 'fixtures');
 
-export function fixtureSpec(mode: 'go' | 'dotnet') {
+export function fixtureSpec(mode: 'go' | 'dotnet', env: Record<string, string> = {}) {
   return parseConfig(`
 name: ${mode}-clock
 sandbox:
@@ -16,7 +16,7 @@ sandbox:
     app:
       build: .
       source: src
-      env: { PORT: '8080' }
+      env: ${JSON.stringify({ PORT: '8080', ...env })}
       ports: [8080]
       determinism: ${mode}
       ready: { http: { port: 8080, path: /health } }

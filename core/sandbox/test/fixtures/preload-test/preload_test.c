@@ -3,12 +3,14 @@
 // SLUICE_NOW_MS=-1500 and SLUICE_SEED=<n>. Prints "FAIL <what>" lines and
 // exits 1 on a broken check; prints "seeded <hex>" (all seeded output) so the
 // caller can compare runs; prints "ok" at the end. With arguments (copied to
-// <root>/dotnet) it only prints "frozen 0|1" for the SDK-process detection.
+// <root>/dotnet or an apphost) it prints "frozen 0|1 cap <N|->" for the
+// SDK/app process detection and the opt-in thread-pool cap.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/random.h>
 #include <sys/syscall.h>
@@ -55,9 +57,13 @@ static long raw_close(long fd) {
 int main(int argc, char **argv) {
   unsigned char b[16];
 
-  // SDK-detection mode (run as <root>/dotnet <arg>): report whether the clock is frozen
+  // SDK-detection mode (run as <root>/dotnet <arg> [then <command...>]): report
+  // whether the clock is frozen and the thread-pool cap this process sees
   if (argc > 1) {
-    printf("frozen %d\n", time(NULL) < 0);
+    const char *cap = getenv("DOTNET_ThreadPool_ForceMaxWorkerThreads");
+    printf("frozen %d cap %s\n", time(NULL) < 0, cap ? cap : "-");
+    fflush(stdout);
+    if (argc > 3 && strcmp(argv[2], "then") == 0) execv(argv[3], argv + 3);
     return 0;
   }
 

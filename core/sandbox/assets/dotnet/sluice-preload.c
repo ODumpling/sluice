@@ -12,8 +12,8 @@
 //   A read is only seeded when fstat confirms the fd still is /dev/urandom or
 //   /dev/random (char device 1:9 / 1:8); dup*/fcntl(F_DUPFD*)/close*/
 //   close_range keep the fd bitmap current, and pread/readv/preadv are covered.
-// - App processes get a single thread-pool worker (SLUICE_DOTNET_WORKERS) so
-//   thread-local Random.Shared is deterministic too.
+// - Opt-in: SLUICE_DOTNET_WORKERS=N caps managed app processes at N thread
+//   pool workers, so thread-local Random.Shared is deterministic too.
 // - Inactive (pure pass-through) in .NET SDK processes (argv under
 //   <dotnet root>/sdk/, or a `dotnet <verb>` CLI) so builds see real time;
 //   set SLUICE_SHIM_ALL=1 to apply it to every process.
@@ -197,6 +197,63 @@ static int is_sdk_process(void) {
   return 0;
 }
 
+// A managed app process: `dotnet App.dll`, `dotnet exec App.dll`, or an
+// apphost (an executable with <name>.dll next to it).
+static int is_managed_app(void) {
+  char exe[PATH_MAX];
+  ssize_t l = syscall(SYS_readlinkat, AT_FDCWD, "/proc/self/exe", exe, sizeof exe - 5);
+  if (l <= 0) return 0;
+  exe[l] = 0;
+  const char *base = strrchr(exe, '/');
+  base = base ? base + 1 : exe;
+  if (strcmp(base, "dotnet") == 0) {
+    char buf[4096];
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    ssize_t n = syscall(SYS_read, fd, buf, sizeof buf - 1);
+    syscall(SYS_close, fd);
+    if (n <= 0) return 0;
+    buf[n] = 0;
+    size_t a0 = strlen(buf);
+    if ((ssize_t)a0 + 1 >= n) return 0;
+    const char *a1 = buf + a0 + 1;
+    size_t l1 = strlen(a1);
+    return strcmp(a1, "exec") == 0 || (l1 > 4 && strcmp(a1 + l1 - 4, ".dll") == 0);
+  }
+  strcat(exe, ".dll");
+  return access(exe, F_OK) == 0;
+}
+
+// Opt-in (SLUICE_DOTNET_WORKERS=N in the service env): cap the thread pool of
+// managed app processes at N workers. Random.Shared (and new Random() seeding)
+// is per thread; with one worker, request code always runs on the same thread,
+// so its values follow from the seed and the request sequence. The runtime
+// reads these variables at startup, i.e. after this constructor. Only app
+// processes get the cap (an SDK/MSBuild process with one worker hangs); a
+// non-app process that inherited a cap Sluice set (marker SLUICE_TP_CAP, e.g.
+// `dotnet build` spawned by the app) drops it again. DOTNET_ThreadPool_*
+// values the app or service set themselves are never touched.
+static const char *TP_MIN = "DOTNET_ThreadPool_ForceMinWorkerThreads";
+static const char *TP_MAX = "DOTNET_ThreadPool_ForceMaxWorkerThreads";
+
+static void thread_pool_cap(int app) {
+  const char *mark = getenv("SLUICE_TP_CAP");
+  if (mark) {
+    if (app) return; // inherited by another app process: keep
+    const char *mn = getenv(TP_MIN), *mx = getenv(TP_MAX);
+    if (mn && strcmp(mn, mark) == 0) unsetenv(TP_MIN);
+    if (mx && strcmp(mx, mark) == 0) unsetenv(TP_MAX);
+    unsetenv("SLUICE_TP_CAP");
+    return;
+  }
+  const char *w = getenv("SLUICE_DOTNET_WORKERS");
+  if (!app || !w || !*w || strcmp(w, "0") == 0) return;
+  if (getenv(TP_MIN) || getenv(TP_MAX)) return;
+  setenv(TP_MIN, w, 1);
+  setenv(TP_MAX, w, 1);
+  setenv("SLUICE_TP_CAP", w, 1);
+}
+
 __attribute__((constructor)) static void sluice_init(void) {
   int64_t v;
   if (parse_i64(getenv("SLUICE_SEED"), &v)) seed = (uint64_t)v;
@@ -206,7 +263,9 @@ __attribute__((constructor)) static void sluice_init(void) {
   const char *all = getenv("SLUICE_SHIM_ALL");
   debug = getenv("SLUICE_SHIM_DEBUG") != NULL;
   if (!have_now && !state) return;
-  if (!(all && *all == '1') && is_sdk_process()) return;
+  int sdk = is_sdk_process();
+  thread_pool_cap(!sdk && is_managed_app());
+  if (!(all && *all == '1') && sdk) return;
   if (state && *state) {
     int fd = (int)syscall(SYS_openat, AT_FDCWD, state, O_RDONLY | O_CLOEXEC);
     if (fd >= 0) {
@@ -216,19 +275,6 @@ __attribute__((constructor)) static void sluice_init(void) {
     }
   }
   active = 1;
-  // Random.Shared (and new Random() seeding) is per thread; with one thread
-  // pool worker, request code always runs on the same thread, so its values
-  // are a function of the seed and the request sequence. Read by the runtime
-  // at startup, i.e. after this constructor; set only in app processes (an
-  // SDK/MSBuild process with one worker deadlocks). SLUICE_DOTNET_WORKERS=N
-  // picks another count, 0 keeps the runtime default; explicit DOTNET_ThreadPool_*
-  // settings win.
-  const char *w = getenv("SLUICE_DOTNET_WORKERS");
-  if (!w || !*w) w = "1";
-  if (strcmp(w, "0") != 0) {
-    setenv("DOTNET_ThreadPool_ForceMinWorkerThreads", w, 0);
-    setenv("DOTNET_ThreadPool_ForceMaxWorkerThreads", w, 0);
-  }
 }
 
 // ------------------------------------------------------------------ clock

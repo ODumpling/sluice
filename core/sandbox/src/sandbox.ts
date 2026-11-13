@@ -22,7 +22,13 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { SandboxSpec, ServiceSpec } from '@sluice-dev/config';
 import { FakeServer, GitHubFake, S3Fake, SimClock, StripeFake, type Fake } from '@sluice-dev/fakes';
-import { controlHint, inject, isDeterministic, prepare as prepareDeterminism } from './determinism/index.js';
+import {
+  controlHint,
+  inject,
+  isDeterministic,
+  prepare as prepareDeterminism,
+  readinessHint,
+} from './determinism/index.js';
 import { docker, dockerStream } from './docker.js';
 
 export const GATEWAY_IMAGE = 'node:22-alpine';
@@ -484,6 +490,17 @@ export class Sandbox {
   }
 
   private async waitReady(name: string): Promise<void> {
+    try {
+      await this.waitReadyInner(name);
+    } catch (e) {
+      const hint = readinessHint(this.spec.services[name]!);
+      if (hint && e instanceof Error && /^timed out/.test(e.message))
+        throw new Error(`${e.message} (${hint})`, { cause: e });
+      throw e;
+    }
+  }
+
+  private async waitReadyInner(name: string): Promise<void> {
     const svc = this.spec.services[name]!;
     const timeout = this.opts.readyTimeoutMs ?? 90_000;
     const running = async () => {

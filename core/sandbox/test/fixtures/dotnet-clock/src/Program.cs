@@ -30,6 +30,11 @@ app.MapGet("/rand", () => new
     rngInt = RandomNumberGenerator.GetInt32(1_000_000),
     hash = "x".GetHashCode() != 0,
 });
+app.MapGet("/threads", () =>
+{
+    ThreadPool.GetMaxThreads(out var workers, out _);
+    return new { maxWorkers = workers, cap = Environment.GetEnvironmentVariable("DOTNET_ThreadPool_ForceMaxWorkerThreads") };
+});
 app.MapGet("/uuid", () => new { uuid = Guid.NewGuid(), v7 = Guid.CreateVersion7() });
 app.MapGet("/emit", (string name) =>
 {
