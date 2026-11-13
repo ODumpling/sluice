@@ -83,6 +83,8 @@ describe('sluice CLI', () => {
     writeFileSync(join(t.cwd, 'package.json'), '{}');
     expect(await runCli(['init', '--lang', 'go'], t)).toBe(0);
     expect(loadConfig(t.cwd).config.sandbox?.services.app?.determinism).toBe('go');
+    // the Go skeleton explains how source/command pair for common layouts
+    expect(readFileSync(join(t.cwd, 'sluice.yaml'), 'utf8')).toMatch(/cmd\/server[\s\S]*source: \./);
     expect(await runCli(['init', '--lang', 'rust', '--force'], t)).toBe(1);
     expect(t.err()).toContain('--lang must be one of node, go, dotnet');
   });

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { imageId } from './determinism/common.js';
 import { docker } from './docker.js';
 
 export interface TestRun {
@@ -57,15 +58,28 @@ function manifestsOf(dir: string, isManifest: (f: string) => boolean): string[] 
 
 const building = new Map<string, Promise<string>>();
 
+/** Local image ID of `image`, pulling it first when it is not present. */
+async function baseImageId(image: string): Promise<string> {
+  try {
+    return await imageId(image);
+  } catch {
+    const r = await docker(['pull', '-q', image], { allowFail: true, timeoutMs: 1_800_000 });
+    if (r.code !== 0) throw new Error(`prepare: cannot pull base image ${image}: ${r.stderr.trim().split('\n').pop()}`);
+    return imageId(image);
+  }
+}
+
 /**
- * Build (or reuse) the prepared image for `dir`: cached by base image, command,
+ * Build (or reuse) the prepared image for `dir`: cached by the base image's
+ * resolved ID (a re-pulled or retagged base gets a fresh prepare), command,
  * env and the content of every dependency manifest, so a tree whose manifests
  * did not change reuses the image (tag `sluice-prepare:<hash>`).
  */
-export function prepareImage(dir: string, image: string, spec: PrepareSpec): Promise<string> {
+export async function prepareImage(dir: string, image: string, spec: PrepareSpec): Promise<string> {
   const files = manifestsOf(dir, spec.manifest).map((f) => ({ f, text: readFileSync(join(dir, f)) }));
   const env = Object.entries(spec.env ?? {}).sort(([a], [b]) => a.localeCompare(b));
-  const h = createHash('sha256').update(JSON.stringify({ image, command: spec.command, env }));
+  const base = await baseImageId(image);
+  const h = createHash('sha256').update(JSON.stringify({ image, base, command: spec.command, env }));
   for (const { f, text } of files) h.update(`\0${f}\0`).update(createHash('sha256').update(text).digest('hex'));
   const tag = `sluice-prepare:${h.digest('hex').slice(0, 20)}`;
   let p = building.get(tag);
@@ -91,11 +105,26 @@ export function prepareImage(dir: string, image: string, spec: PrepareSpec): Pro
           '',
         ].join('\n');
         const started = Date.now();
-        const r = await docker(['build', '-q', '-t', tag, '--label', 'sluice.prepare=1', '-f', '-', ctx], {
-          input: dockerfile,
-          allowFail: true,
-          timeoutMs: 1_800_000,
-        });
+        const r = await docker(
+          [
+            'build',
+            '-q',
+            '-t',
+            tag,
+            '--label',
+            'sluice.prepare=1',
+            '--label',
+            `sluice.prepare.base=${base}`,
+            '-f',
+            '-',
+            ctx,
+          ],
+          {
+            input: dockerfile,
+            allowFail: true,
+            timeoutMs: 1_800_000,
+          },
+        );
         if (process.env.SLUICE_TRACE_DOCKER)
           process.stderr.write(`[docker ${Date.now() - started}ms] prepare ${tag} (${image}) -> ${r.code}\n`);
         if (r.code !== 0)

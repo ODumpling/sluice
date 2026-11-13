@@ -24,6 +24,8 @@ describe('bench for Go and .NET', () => {
       const [name, sha] = l.split(' ');
       heads[name!] = sha!;
     }
+    // the same projects one directory down (repo root holds only backend/)
+    execFileSync('node', [join(EXAMPLE, 'synth', 'make-repos.mjs'), join(synth, 'nested'), '--prefix', 'backend']);
     cpSync(EXAMPLE, join(root, 'bench'), {
       recursive: true,
       filter: (s) => !s.includes('.sluice') && !s.endsWith('cel-js.bundle'),
@@ -37,20 +39,28 @@ describe('bench for Go and .NET', () => {
     }
   });
 
-  for (const [lang, name, image, testFile] of [
-    ['go', 'go-textkit', /^golang:/, /_test\.go$/],
-    ['dotnet', 'dotnet-textkit', /^mcr\.microsoft\.com\/dotnet\/sdk:/, /^tests\/Textkit\.Tests\/\w+Tests\.cs$/],
+  for (const [lang, repoName, image, testFile, nested] of [
+    ['go', 'go-textkit', /^golang:/, /^[a-z]+_test\.go$/, false],
+    ['dotnet', 'dotnet-textkit', /^mcr\.microsoft\.com\/dotnet\/sdk:/, /^tests\/Textkit\.Tests\/\w+Tests\.cs$/, false],
+    ['go', 'go-textkit', /^golang:/, /^backend\/[a-z]+_test\.go$/, true],
+    [
+      'dotnet',
+      'dotnet-textkit',
+      /^mcr\.microsoft\.com\/dotnet\/sdk:/,
+      /^backend\/tests\/Textkit\.Tests\/\w+Tests\.cs$/,
+      true,
+    ],
   ] as const) {
-    it(`${lang}: mines fail-to-pass tasks with toolchain defaults and the oracle solves all`, async () => {
+    const name = nested ? `${repoName}-nested` : repoName;
+    it(`${lang}${nested ? ' (project in backend/)' : ''}: mines fail-to-pass tasks with toolchain defaults and the oracle solves all`, async () => {
       const dir = join(root, 'bench');
-      const cfg = `${lang}.local.bench.yaml`;
+      const cfg = `${name}.local.bench.yaml`;
       // the example config, pointed at the freshly synthesized repository
       writeFileSync(
         join(dir, cfg),
-        readFileSync(join(dir, `${lang}.bench.yaml`), 'utf8').replace(
-          /bundle: .*\n/,
-          `path: ${JSON.stringify(join(synth, name))}\n`,
-        ),
+        readFileSync(join(dir, `${lang}.bench.yaml`), 'utf8')
+          .replace(/bundle: .*\n/, `path: ${JSON.stringify(join(synth, nested ? 'nested' : '', repoName))}\n`)
+          .replace(/^name: .*$/m, `name: ${name}`),
       );
       const b = loadBenchConfig(join(dir, cfg));
       const logs: string[] = [];
@@ -62,6 +72,9 @@ describe('bench for Go and .NET', () => {
       expect(mined.rejected, why).toEqual([]);
       for (const t of tasks) {
         expect(t.image).toMatch(image);
+        // toolchain defaults run at the detected project root
+        expect(t.testCommand.startsWith('cd backend && '), t.testCommand).toBe(nested);
+        expect(t.prepare!.startsWith('cd backend && '), t.prepare).toBe(nested);
         expect(t.prepare).toBeTruthy();
         expect(Object.keys(t.tests).length).toBeGreaterThan(0);
         for (const f of Object.keys(t.tests)) expect(f).toMatch(testFile);

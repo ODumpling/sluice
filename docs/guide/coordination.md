@@ -40,7 +40,7 @@ with tree-sitter.
 | --------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | engine    | TypeScript language service                                | tree-sitter                                                                                                     | tree-sitter                                                                                                                       |
 | symbols   | top-level declarations                                     | funcs, methods, types (struct / interface / defined / alias), consts, vars                                      | types: class, struct, interface, record (class / struct), enum, delegate                                                          |
-| ids       | `src/types.ts#Invoice`                                     | `store/store.go#Memory`, methods `store/store.go#Memory.Get`                                                    | `src/Models/Invoice.cs#Invoice`, nested `…#Invoice.Line`                                                                          |
+| ids       | `src/types.ts#Invoice`                                     | `store/store.go#Memory`, methods `store/store.go#Memory.Get`                                                    | `src/Models/Invoice.cs#Acme.Models.Invoice`, generic ``…#Acme.Box`1``, nested `…#Acme.Models.Invoice.Line`                        |
 | exported  | `export`                                                   | exported identifier (upper case)                                                                                | visible outside its file: top-level types unless `file`-local (internal counts: it is assembly-wide); nested types unless private |
 | signature | type text / function signature / non-private class members | param / result types, exported struct fields + tags, interface method set, alias / defined target, const values | modifiers, type params, base list, constraints, non-private members without bodies / initializers                                 |
 | skipped   | `node_modules`, `dist`, `*.d.ts`                           | `vendor/`, `testdata/`                                                                                          | `bin/`, `obj/`                                                                                                                    |
@@ -75,7 +75,21 @@ name shadowed by a parameter or local (in expression position) or a type
 parameter is not counted. Members reached only through an inferred type
 (`var x = repo.Get(); x.Total`) are not attributed to the type.
 
-**Partial classes** are one symbol (per project and namespace-qualified name).
+**Symbol identity.** C# ids are `path#` + the .NET metadata-style name:
+namespace, enclosing types and generic arity (`Acme.Models.Invoice`,
+``Acme.Box`1``, ``Acme.Outer`1.Inner``; a type in the global namespace is just
+`path#Name`). So `namespace A { class Item }` and `namespace B { class Item }`
+in one file, or `Box` and `Box<T>`, are distinct symbols with separate
+leases, conflicts and broadcasts; the same names key partial-type merging and
+reference lookup (`Box<int>` resolves to ``Box`1``, `typeof(Box<,>)` to
+``Box`2``). Go ids are unique per package scope (`path#Name`, methods
+`path#Recv.Method`, generic receivers drop their type parameters:
+`path#Box.Get`); several `init()` in one file are one symbol with several
+parts, and same-named declarations in build-constrained files
+(`open_linux.go` / `open_darwin.go`) are separate symbols that each receive the
+references to that name.
+
+**Partial classes** are one symbol (per project and metadata name).
 The id uses the part in the file named after the type (`Invoice.cs`), else
 the first part by path; every part is listed in `parts`, so an edit to any
 part maps to the symbol, and a public member added in any part is an

@@ -65,8 +65,9 @@ that contains **only the tree's dependency manifests** (paths preserved, under
 time**. Tests then run offline in that image (Go's module and build caches,
 NuGet's global packages folder and `obj/` restore state are baked in; the
 implicit restore of `dotnet test` succeeds offline). The image is tagged
-`sluice-prepare:<hash>` by base image, command, environment and the content of
-every manifest, so it is reused until a manifest changes (mined commits never
+`sluice-prepare:<hash>` by the base image's resolved ID (re-pulling or
+retagging the base gets a fresh prepare), command, environment and the content
+of every manifest, so it is reused until a manifest changes (mined commits never
 change one; an agent that edits `go.mod` gets a fresh prepare). Values:
 
 - omitted — the toolchain default when the tree needs it (any `go.mod`; any
@@ -76,6 +77,22 @@ change one; an agent that edits `go.mod` gets a fresh prepare). Values:
 - a string — your command, run in `/work` with only the manifests present
   (e.g. `go mod download && go install gotest.tools/gotestsum@v1.12.0`);
 - `false` — none (vendored modules, an `image` with dependencies baked in).
+
+> **Prepare runs project build logic with network.** It is not a sandboxed
+> download: `dotnet restore` evaluates the project files and every imported
+> MSBuild file in the tree (`Directory.Build.props`/`.targets`, custom targets
+> hooked into restore, NuGet plugins and credential providers from
+> `NuGet.config`), and `go mod download` / `go build std` honour `go.mod`
+> directives (`toolchain` downloads, `GOFLAGS`, replaces) — `go generate` is
+> never run. All of it executes during `docker build` with network access, so
+> only mine repositories whose build files you trust (or set `prepare: false`
+> and bake dependencies into `image` yourself). Tests themselves always run
+> with `--network none`.
+
+Toolchain defaults run at the detected project root: a repository holding only
+`backend/go.mod` (or `Api/Api.csproj`, or `svc/Svc.slnx`) gets
+`cd backend && go test ./...` and the prepare step there too. An explicit
+`mine.testCommand` runs from the repository root as written.
 
 Remove cached images with `docker image prune -a --filter label=sluice.prepare=1`.
 A prepare failure rejects the candidate (`prepare failed on the parent: …`)

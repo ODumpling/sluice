@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import {
   TOOLCHAINS,
   defaultPrepare,
+  detectToolchain,
   findManifests,
+  inRoot,
   isToolchainSourceFile,
   isToolchainTestFile,
 } from '@sluice-dev/lang';
@@ -63,6 +65,28 @@ describe('toolchains: prepare and file roles', () => {
       './A/A.csproj',
       './T/T.Tests.fsproj',
     ]);
+  });
+
+  it('detects the project root one level down', () => {
+    expect(detectToolchain(mk({ 'go.mod': '', 'backend/go.mod': '' }))).toMatchObject({ id: 'go', root: '.' });
+    expect(detectToolchain(mk({ 'backend/go.mod': '', 'README.md': '' }))).toMatchObject({ id: 'go', root: 'backend' });
+    expect(detectToolchain(mk({ 'Api/Api.csproj': '' }))).toMatchObject({ id: 'dotnet', root: 'Api' });
+    // a child holding a solution wins over project-only children
+    expect(detectToolchain(mk({ 'App/App.csproj': '', 'svc/Svc.slnx': '', 'svc/A/A.csproj': '' }))).toMatchObject({
+      id: 'dotnet',
+      root: 'svc',
+    });
+    // ambiguous: several candidate children -> root stays '.'
+    expect(detectToolchain(mk({ 'App/App.csproj': '', 'App.Tests/App.Tests.csproj': '' }))).toMatchObject({
+      id: 'dotnet',
+      root: '.',
+    });
+    expect(inRoot('.', 'go test ./...')).toBe('go test ./...');
+    expect(inRoot('backend', 'go test ./...')).toBe('cd backend && go test ./...');
+    expect(inRoot("my app's", 'x')).toBe(`cd 'my app'\\''s' && x`);
+    expect(
+      execFileSync('sh', ['-c', inRoot("my app's", 'basename "$PWD"')], { cwd: mk({ "my app's/x": '' }) }).toString(),
+    ).toBe("my app's\n");
   });
 
   it('classifies test and source files per toolchain', () => {

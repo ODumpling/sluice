@@ -57,6 +57,21 @@ interface GoDecl {
   resultNode?: SgNode | null;
   embedded?: SgNode[];
   alias?: SgNode | null;
+  /**
+   * Every declaration of the same package-level name (or `Recv.Method`) in the
+   * package, this one included — e.g. `open_linux.go` / `open_darwin.go` behind
+   * build constraints. A reference counts for each of them.
+   */
+  twins?: GoDecl[];
+}
+
+/** Register `d` under `key`, keeping same-named declarations from other files as twins. */
+function register(map: Map<string, GoDecl>, key: string, d: GoDecl): void {
+  const prev = map.get(key);
+  if (!prev) return void map.set(key, d);
+  prev.twins ??= [prev];
+  prev.twins.push(d);
+  d.twins = prev.twins;
 }
 
 interface GoPackage {
@@ -187,7 +202,7 @@ export class GoProvider implements SymbolProvider {
 
   private collect(f: GoFile): void {
     const byId = new Map<string, SymbolInfo>();
-    const add = (decl: GoDecl, node: SgNode, signature: string, exported: boolean, register = true) => {
+    const add = (decl: GoDecl, node: SgNode, signature: string, exported: boolean, registerName = true) => {
       const span = { file: f.file, startLine: lineOf(node), endLine: endLineOf(node) };
       const prev = byId.get(decl.id);
       if (prev) {
@@ -208,7 +223,7 @@ export class GoProvider implements SymbolProvider {
       byId.set(decl.id, info);
       this.symbols.push(info);
       this.declById.set(decl.id, decl);
-      if (register) f.pkg.decls.set(decl.name, decl);
+      if (registerName) register(f.pkg.decls, decl.name, decl);
     };
 
     for (const top of f.root.namedChildren()) {
@@ -240,7 +255,7 @@ export class GoProvider implements SymbolProvider {
         };
         const sig = `func (${ws(textWithout(recvType!))}) ${name}(${paramTypes(top.field('parameters'))})${resultText(top.field('result'))}`;
         add(decl, top, sig, isExported(name), false);
-        f.pkg.methods.set(`${recv}.${name}`, decl);
+        register(f.pkg.methods, `${recv}.${name}`, decl);
         const same = this.methodsByName.get(name) ?? [];
         same.push(decl);
         this.methodsByName.set(name, same);
@@ -356,7 +371,8 @@ export class GoProvider implements SymbolProvider {
 
   uniqueMethod(name: string): GoDecl | undefined {
     const m = this.methodsByName.get(name);
-    return m?.length === 1 ? m[0] : undefined;
+    // unique, or only build-constraint twins of one method
+    return m?.length && m.every((x) => x === m[0] || x.twins?.includes(m[0]!)) ? m[0] : undefined;
   }
 
   /** Method `name` of type decl `t` (incl. promoted through embedded fields / aliases). */
@@ -541,7 +557,7 @@ class GoWalker {
   }
 
   private record(d: GoDecl | undefined, at: SgNode): void {
-    if (d) this.out.add(d.id, at);
+    if (d) for (const x of d.twins ?? [d]) this.out.add(x.id, at);
   }
 
   private typeParams(list: SgNode | null, s: Scope<Local>): void {

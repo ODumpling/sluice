@@ -46,6 +46,18 @@ describe('bench mining defaults', () => {
     expect(m.isSource('tests/App.Tests/CartTests.cs')).toBe(false);
   });
 
+  it('nested project roots: defaults run at backend/ (Go module) and Api/ (.NET project, no solution)', async () => {
+    const go = await resolveMining(opts(repo({ 'backend/go.mod': 'module x\n', 'backend/a.go': '', 'docs/x.md': '' })));
+    expect(go.testCommand).toBe('cd backend && go test ./...');
+    expect(go.prepare).toBe(`cd backend && ${TOOLCHAINS.go.prepareCommand}`);
+    const dn = await resolveMining(opts(repo({ 'Api/Api.csproj': '', 'Api/Program.cs': '' }), { prepare: true }));
+    expect(dn.testCommand).toBe('cd Api && dotnet test --nologo');
+    expect(dn.prepare).toBe(`cd Api && ${TOOLCHAINS.dotnet.prepareCommand}`);
+    // an explicit test command runs from the repository root, as written
+    const explicit = await resolveMining(opts(repo({ 'backend/go.mod': 'module x\n' }), { testCommand: 'make test' }));
+    expect(explicit.testCommand).toBe('make test');
+  });
+
   it('Node keeps explicit settings and gets no prepare unless asked', async () => {
     const d = repo({ 'package.json': '{}', 'lib/a.js': '' });
     const explicit = await resolveMining(

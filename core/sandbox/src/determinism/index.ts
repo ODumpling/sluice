@@ -6,10 +6,9 @@
  */
 import { join } from 'node:path';
 import type { DeterminismMode, ServiceSpec } from '@sluice-dev/config';
-import { docker } from '../docker.js';
 import { ASSETS } from './common.js';
 import { DOTNET_INIT, DOTNET_MOUNT, dotnetCommand, imageConfig, prepareDotnetShim } from './dotnet.js';
-import { GO_MOUNT, goCacheVolume, prepareGoShim } from './go.js';
+import { GO_MOUNT, prepareGoShim, prepareGoWarmImage } from './go.js';
 
 export { DeterminismError, cacheRoot } from './common.js';
 export type { DeterminismMode };
@@ -37,6 +36,8 @@ export interface Injection {
   env: Record<string, string>;
   /** Replacement for the container command (dotnet: the original entrypoint + command). */
   command?: string[];
+  /** Image to run instead of the service image (go: the warm-cache image). */
+  image?: string;
 }
 
 export interface InjectionContext {
@@ -56,7 +57,7 @@ export interface InjectionContext {
 export async function prepare(svc: ServiceSpec, image: string, log: (m: string) => void): Promise<void> {
   if (svc.determinism === 'go') {
     const shim = await prepareGoShim(image, log);
-    await docker(['volume', 'create', '--label', 'sluice.cache=go', goCacheVolume(shim)]);
+    await prepareGoWarmImage(image, shim, svc.workdir, svc.env, log);
   } else if (svc.determinism === 'dotnet') {
     await prepareDotnetShim((await imageConfig(image)).arch, log);
   }
@@ -84,13 +85,10 @@ export async function inject(svc: ServiceSpec, ctx: InjectionContext): Promise<I
       const overlay = `-overlay=${GO_MOUNT}/overlay.json`;
       const goflags = ctx.env.GOFLAGS ?? shim.goflags;
       return {
-        args: [
-          '-v',
-          `${shim.dir}:${GO_MOUNT}:ro`,
-          // the overlay recompiles std; keep the build cache across container restarts
-          '-v',
-          `${goCacheVolume(shim)}:${ctx.env.GOCACHE || shim.gocache}`,
-        ],
+        // the warm image carries the overlay (at GO_MOUNT) and a GOCACHE with the
+        // overlaid stdlib; no cache is shared between containers
+        image: await prepareGoWarmImage(ctx.image, shim, svc.workdir, svc.env, ctx.log),
+        args: [],
         env: {
           ...sluice,
           GOFLAGS: goflags ? `${goflags} ${overlay}` : overlay,

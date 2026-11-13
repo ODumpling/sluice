@@ -9,9 +9,14 @@
 // - Randomness: getrandom, getentropy, arc4random*, syscall(SYS_getrandom) and
 //   reads from /dev/urandom|/dev/random return a stream seeded from SLUICE_SEED;
 //   srand/srandom/srand48 ignore their argument and use a seed derived from it.
-// - Inactive (pure pass-through) in .NET SDK processes (dotnet run/build,
-//   MSBuild, the compiler server) so builds see real time; set
-//   SLUICE_SHIM_ALL=1 to apply it to every process.
+//   A read is only seeded when fstat confirms the fd still is /dev/urandom or
+//   /dev/random (char device 1:9 / 1:8); dup*/fcntl(F_DUPFD*)/close*/
+//   close_range keep the fd bitmap current, and pread/readv/preadv are covered.
+// - App processes get a single thread-pool worker (SLUICE_DOTNET_WORKERS) so
+//   thread-local Random.Shared is deterministic too.
+// - Inactive (pure pass-through) in .NET SDK processes (argv under
+//   <dotnet root>/sdk/, or a `dotnet <verb>` CLI) so builds see real time;
+//   set SLUICE_SHIM_ALL=1 to apply it to every process.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
@@ -21,8 +26,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
+#include <sys/uio.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -52,9 +61,24 @@ static int (*real___open_2)(const char *, int);
 static int (*real___open64_2)(const char *, int);
 static ssize_t (*real_read)(int, void *, size_t);
 static int (*real_close)(int);
+static ssize_t (*real_pread)(int, void *, size_t, off_t);
+static ssize_t (*real_pread64)(int, void *, size_t, off_t);
+static ssize_t (*real_readv)(int, const struct iovec *, int);
+static ssize_t (*real_preadv)(int, const struct iovec *, int, off_t);
+static ssize_t (*real_preadv64)(int, const struct iovec *, int, off_t);
+static int (*real_dup)(int);
+static int (*real_dup2)(int, int);
+static int (*real_dup3)(int, int, int);
+static int (*real_fcntl)(int, int, ...);
+static int (*real_fcntl64)(int, int, ...);
+static int (*real_close_range)(unsigned, unsigned, int);
 static void (*real_srand)(unsigned);
 static void (*real_srandom)(unsigned);
 static void (*real_srand48)(long);
+
+static void untrack(int fd);
+static void copy_track(int from, int to);
+static void untrack_range(unsigned first, unsigned last, int flags);
 
 #define RESOLVE(name) (real_##name ? real_##name : (real_##name = dlsym(RTLD_NEXT, #name)))
 
@@ -86,8 +110,15 @@ static void fill_(void *buf, size_t n, const char *src) {
   for (size_t x = n, i = 0; i < sizeof n; i++, x >>= 8) h = (h ^ (x & 0xff)) * 16777619u;
   unsigned k = h % STREAMS;
   if (debug) {
-    char b[160];
-    int l = snprintf(b, sizeof b, "[sluice-shim] %s n=%zu stream=%u tid=%ld\n", src, n, k, (long)syscall(SYS_gettid));
+    char b[200], comm[32] = "?";
+    int cfd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/thread-self/comm", O_RDONLY | O_CLOEXEC);
+    if (cfd >= 0) {
+      ssize_t cl = syscall(SYS_read, cfd, comm, sizeof comm - 1);
+      syscall(SYS_close, cfd);
+      comm[cl > 0 ? cl - 1 : 0] = 0;
+    }
+    int l = snprintf(b, sizeof b, "[sluice-shim] %s n=%zu stream=%u tid=%ld thread=%s\n", src, n, k,
+                     (long)syscall(SYS_gettid), comm);
     syscall(SYS_write, 2, b, l);
   }
   unsigned char *p = buf;
@@ -111,6 +142,28 @@ static int parse_i64(const char *s, int64_t *out) {
   return 1;
 }
 
+static int starts_with(const char *s, const char *prefix) { return strncmp(s, prefix, strlen(prefix)) == 0; }
+
+// <root>/sdk/ for the dotnet roots this process can use: the directory of the
+// running dotnet host (/proc/self/exe), and $DOTNET_ROOT. Symlinks resolved.
+static int sdk_prefixes(char out[2][PATH_MAX + 8]) {
+  int n = 0;
+  char exe[PATH_MAX];
+  ssize_t l = syscall(SYS_readlinkat, AT_FDCWD, "/proc/self/exe", exe, sizeof exe - 1);
+  if (l > 0) {
+    exe[l] = 0;
+    char *slash = strrchr(exe, '/');
+    if (slash && strcmp(slash + 1, "dotnet") == 0) {
+      *slash = 0;
+      snprintf(out[n++], PATH_MAX + 8, "%s/sdk/", exe);
+    }
+  }
+  const char *root = getenv("DOTNET_ROOT");
+  char real[PATH_MAX];
+  if (root && *root && realpath(root, real)) snprintf(out[n++], PATH_MAX + 8, "%s/sdk/", real);
+  return n;
+}
+
 static int is_sdk_process(void) {
   char buf[8192];
   int fd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
@@ -122,8 +175,16 @@ static int is_sdk_process(void) {
   const char *argv[64];
   int argc = 0;
   for (ssize_t i = 0; i < n && argc < 64; i += (ssize_t)strlen(buf + i) + 1) argv[argc++] = buf + i;
-  for (int i = 0; i < argc; i++)
-    if (strstr(argv[i], "/sdk/")) return 1; // MSBuild.dll, VBCSCompiler.dll, csc.dll, dotnet.dll, ...
+  // MSBuild.dll, VBCSCompiler.dll, csc.dll, dotnet.dll, ... under the real SDK dir
+  char prefixes[2][PATH_MAX + 8];
+  int np = sdk_prefixes(prefixes);
+  for (int i = 0; i < argc; i++) {
+    if (!strstr(argv[i], "/sdk/")) continue;
+    char real[PATH_MAX];
+    const char *p = realpath(argv[i], real) ? real : argv[i];
+    for (int j = 0; j < np; j++)
+      if (starts_with(p, prefixes[j]) || starts_with(argv[i], prefixes[j])) return 1;
+  }
   const char *base = strrchr(argv[0], '/');
   base = base ? base + 1 : argv[0];
   if (strcmp(base, "dotnet") == 0 && argc > 1) {
@@ -155,9 +216,30 @@ __attribute__((constructor)) static void sluice_init(void) {
     }
   }
   active = 1;
+  // Random.Shared (and new Random() seeding) is per thread; with one thread
+  // pool worker, request code always runs on the same thread, so its values
+  // are a function of the seed and the request sequence. Read by the runtime
+  // at startup, i.e. after this constructor; set only in app processes (an
+  // SDK/MSBuild process with one worker deadlocks). SLUICE_DOTNET_WORKERS=N
+  // picks another count, 0 keeps the runtime default; explicit DOTNET_ThreadPool_*
+  // settings win.
+  const char *w = getenv("SLUICE_DOTNET_WORKERS");
+  if (!w || !*w) w = "1";
+  if (strcmp(w, "0") != 0) {
+    setenv("DOTNET_ThreadPool_ForceMinWorkerThreads", w, 0);
+    setenv("DOTNET_ThreadPool_ForceMaxWorkerThreads", w, 0);
+  }
 }
 
 // ------------------------------------------------------------------ clock
+
+// floor division, so instants before 1970 keep 0 <= sub-second part < 1s
+static void split_ms(int64_t ms, int64_t *sec, int64_t *rem_ms) {
+  int64_t q = ms / 1000, r = ms % 1000;
+  if (r < 0) q -= 1, r += 1000;
+  *sec = q;
+  *rem_ms = r;
+}
 
 static int frozen_clock(clockid_t c) {
   return active && (c == CLOCK_REALTIME || c == CLOCK_REALTIME_COARSE || c == CLOCK_TAI);
@@ -165,9 +247,10 @@ static int frozen_clock(clockid_t c) {
 
 int clock_gettime(clockid_t c, struct timespec *ts) {
   if (frozen_clock(c) && ts) {
-    int64_t ms = now_ms();
-    ts->tv_sec = (time_t)(ms / 1000);
-    ts->tv_nsec = (long)(ms % 1000) * 1000000L;
+    int64_t sec, rem;
+    split_ms(now_ms(), &sec, &rem);
+    ts->tv_sec = (time_t)sec;
+    ts->tv_nsec = (long)rem * 1000000L;
     return 0;
   }
   if (RESOLVE(clock_gettime)) return real_clock_gettime(c, ts);
@@ -177,9 +260,10 @@ int clock_gettime(clockid_t c, struct timespec *ts) {
 int gettimeofday(struct timeval *tv, void *tz) {
   if (active) {
     if (tv) {
-      int64_t ms = now_ms();
-      tv->tv_sec = (time_t)(ms / 1000);
-      tv->tv_usec = (suseconds_t)(ms % 1000) * 1000;
+      int64_t sec, rem;
+      split_ms(now_ms(), &sec, &rem);
+      tv->tv_sec = (time_t)sec;
+      tv->tv_usec = (suseconds_t)rem * 1000;
     }
     if (tz) memset(tz, 0, 2 * sizeof(int));
     return 0;
@@ -190,9 +274,10 @@ int gettimeofday(struct timeval *tv, void *tz) {
 
 time_t time(time_t *t) {
   if (active) {
-    time_t s = (time_t)(now_ms() / 1000);
-    if (t) *t = s;
-    return s;
+    int64_t sec, rem;
+    split_ms(now_ms(), &sec, &rem);
+    if (t) *t = (time_t)sec;
+    return (time_t)sec;
   }
   if (RESOLVE(time)) return real_time(t);
   struct timespec ts;
@@ -276,25 +361,68 @@ long syscall(long nr, ...) {
     errno = ENOSYS;
     return -1;
   }
-  return real_syscall(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+  long r = real_syscall(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+  if (nr == SYS_close) untrack((int)a[0]);
+  else if (nr == SYS_dup3 && r >= 0) copy_track((int)a[0], (int)r);
+#ifdef SYS_dup2
+  else if (nr == SYS_dup2 && r >= 0) copy_track((int)a[0], (int)r);
+#endif
+#ifdef SYS_dup
+  else if (nr == SYS_dup && r >= 0) copy_track((int)a[0], (int)r);
+#endif
+#ifdef SYS_close_range
+  else if (nr == SYS_close_range && r == 0) untrack_range((unsigned)a[0], (unsigned)a[1], (int)a[2]);
+#endif
+  else if (nr == SYS_fcntl && r >= 0 && (a[1] == F_DUPFD || a[1] == F_DUPFD_CLOEXEC)) copy_track((int)a[0], (int)r);
+  return r;
 }
 
 static int is_random_dev(const char *path) {
   return path && (strcmp(path, "/dev/urandom") == 0 || strcmp(path, "/dev/random") == 0);
 }
 
+static void set_bit(int fd, int on) {
+  if (fd < 0 || fd >= MAX_FD) return;
+  unsigned char m = (unsigned char)(1u << (fd % 8));
+  if (on) __atomic_or_fetch(&rand_fds[fd / 8], m, __ATOMIC_RELAXED);
+  else __atomic_and_fetch(&rand_fds[fd / 8], (unsigned char)~m, __ATOMIC_RELAXED);
+}
+
+static int bit(int fd) {
+  return fd >= 0 && fd < MAX_FD && (__atomic_load_n(&rand_fds[fd / 8], __ATOMIC_RELAXED) & (1u << (fd % 8)));
+}
+
 static int track(int fd, const char *path) {
-  if (fd >= 0 && fd < MAX_FD) {
-    if (active && is_random_dev(path))
-      __atomic_or_fetch(&rand_fds[fd / 8], (unsigned char)(1u << (fd % 8)), __ATOMIC_RELAXED);
-    else
-      __atomic_and_fetch(&rand_fds[fd / 8], (unsigned char)~(1u << (fd % 8)), __ATOMIC_RELAXED);
-  }
+  if (fd >= 0) set_bit(fd, active && is_random_dev(path));
   return fd;
 }
 
+static void untrack(int fd) { set_bit(fd, 0); }
+
+static void copy_track(int from, int to) {
+  if (to >= 0 && to != from) set_bit(to, bit(from));
+}
+
+static void untrack_range(unsigned first, unsigned last, int flags) {
+#ifdef CLOSE_RANGE_CLOEXEC
+  if (flags & CLOSE_RANGE_CLOEXEC) return; // only marks them close-on-exec
+#else
+  if (flags & 4) return;
+#endif
+  for (unsigned fd = first; fd <= last && fd < MAX_FD; fd++) set_bit((int)fd, 0);
+}
+
+// The bitmap is a hint (fds can change behind our back: fclose, raw
+// syscalls, inherited fds); a read is seeded only if the fd really is
+// /dev/random (1:8) or /dev/urandom (1:9) right now.
 static int tracked(int fd) {
-  return fd >= 0 && fd < MAX_FD && (__atomic_load_n(&rand_fds[fd / 8], __ATOMIC_RELAXED) & (1u << (fd % 8)));
+  if (!active || !bit(fd)) return 0;
+  struct stat st;
+  if (fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && major(st.st_rdev) == 1 &&
+      (minor(st.st_rdev) == 8 || minor(st.st_rdev) == 9))
+    return 1;
+  untrack(fd);
+  return 0;
 }
 
 static mode_t open_mode(int flags, va_list ap) {
@@ -343,7 +471,7 @@ int __open64_2(const char *path, int flags) {
 }
 
 ssize_t read(int fd, void *buf, size_t n) {
-  if (active && tracked(fd)) {
+  if (tracked(fd)) {
     fill(buf, n);
     return (ssize_t)n;
   }
@@ -351,11 +479,90 @@ ssize_t read(int fd, void *buf, size_t n) {
   return syscall(SYS_read, fd, buf, n);
 }
 
+#define PREAD_WRAPPER(name)                                                  \
+  ssize_t name(int fd, void *buf, size_t n, off_t off) {                     \
+    if (tracked(fd)) {                                                       \
+      fill(buf, n);                                                          \
+      return (ssize_t)n;                                                     \
+    }                                                                        \
+    if (RESOLVE(name)) return real_##name(fd, buf, n, off);                  \
+    return syscall(SYS_pread64, fd, buf, n, off);                            \
+  }
+PREAD_WRAPPER(pread)
+PREAD_WRAPPER(pread64)
+
+static ssize_t fill_iov(const struct iovec *iov, int cnt) {
+  ssize_t total = 0;
+  for (int i = 0; i < cnt; i++) {
+    fill(iov[i].iov_base, iov[i].iov_len);
+    total += (ssize_t)iov[i].iov_len;
+  }
+  return total;
+}
+
+ssize_t readv(int fd, const struct iovec *iov, int cnt) {
+  if (tracked(fd)) return fill_iov(iov, cnt);
+  if (RESOLVE(readv)) return real_readv(fd, iov, cnt);
+  return syscall(SYS_readv, fd, iov, cnt);
+}
+
+#define PREADV_WRAPPER(name)                                                 \
+  ssize_t name(int fd, const struct iovec *iov, int cnt, off_t off) {        \
+    if (tracked(fd)) return fill_iov(iov, cnt);                              \
+    if (RESOLVE(name)) return real_##name(fd, iov, cnt, off);                \
+    return syscall(SYS_preadv, fd, iov, cnt, off, 0);                        \
+  }
+PREADV_WRAPPER(preadv)
+PREADV_WRAPPER(preadv64)
+
 int close(int fd) {
-  track(fd, NULL);
+  untrack(fd);
   if (RESOLVE(close)) return real_close(fd);
   return (int)syscall(SYS_close, fd);
 }
+
+int close_range(unsigned first, unsigned last, int flags) {
+#ifdef SYS_close_range
+  int r = RESOLVE(close_range) ? real_close_range(first, last, flags)
+                               : (int)syscall(SYS_close_range, first, last, flags);
+#else
+  int r = RESOLVE(close_range) ? real_close_range(first, last, flags) : (errno = ENOSYS, -1);
+#endif
+  if (r == 0) untrack_range(first, last, flags);
+  return r;
+}
+
+int dup(int fd) {
+  int r = RESOLVE(dup) ? real_dup(fd) : (int)syscall(SYS_fcntl, fd, F_DUPFD, 0);
+  copy_track(fd, r);
+  return r;
+}
+
+int dup2(int from, int to) {
+  int r = RESOLVE(dup2) ? real_dup2(from, to) : (int)syscall(SYS_dup3, from, to, 0);
+  if (r >= 0) copy_track(from, r);
+  return r;
+}
+
+int dup3(int from, int to, int flags) {
+  int r = RESOLVE(dup3) ? real_dup3(from, to, flags) : (int)syscall(SYS_dup3, from, to, flags);
+  if (r >= 0) copy_track(from, r);
+  return r;
+}
+
+#define FCNTL_WRAPPER(name)                                                  \
+  int name(int fd, int cmd, ...) {                                           \
+    va_list ap;                                                              \
+    va_start(ap, cmd);                                                       \
+    long arg = va_arg(ap, long);                                             \
+    va_end(ap);                                                              \
+    int r = RESOLVE(name) ? real_##name(fd, cmd, arg)                        \
+                          : (int)syscall(SYS_fcntl, fd, cmd, arg);           \
+    if (r >= 0 && (cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC)) copy_track(fd, r); \
+    return r;                                                                \
+  }
+FCNTL_WRAPPER(fcntl)
+FCNTL_WRAPPER(fcntl64)
 
 static unsigned derived_seed(void) {
   return (unsigned)(seed * 2654435761u + 12345u);
@@ -379,23 +586,31 @@ void srand48(long s) {
 // interposed directly). On glibc, dlsym is wrapped to hand out a seeded
 // RAND_bytes. Everything else resolves through the real dlsym.
 
+#ifdef __GLIBC__
 static int sluice_RAND_bytes(unsigned char *buf, int num) {
   if (num > 0) fill(buf, (size_t)num);
   return 1;
 }
 
-#ifdef __GLIBC__
 static void *(*real_dlsym)(void *, const char *);
 
+__attribute__((noinline)) static void resolve_dlsym(void) {
+  static const char *versions[] = {"GLIBC_2.34", "GLIBC_2.17", "GLIBC_2.2.5"};
+  for (int i = 0; i < 3 && !real_dlsym; i++) real_dlsym = dlvsym(RTLD_NEXT, "dlsym", versions[i]);
+}
+
+static int is_rand_bytes(const char *name) {
+  return name && (strcmp(name, "RAND_bytes") == 0 || strcmp(name, "RAND_priv_bytes") == 0);
+}
+
+// Every lookup but RAND_bytes on an explicit handle is a tail call, so the
+// real dlsym sees the original caller's return address: RTLD_NEXT /
+// RTLD_DEFAULT keep their semantics for other interposers.
 void *dlsym(void *handle, const char *name) {
-  if (!real_dlsym) {
-    static const char *versions[] = {"GLIBC_2.34", "GLIBC_2.17", "GLIBC_2.2.5"};
-    for (int i = 0; i < 3 && !real_dlsym; i++) real_dlsym = dlvsym(RTLD_NEXT, "dlsym", versions[i]);
-    if (!real_dlsym) return NULL;
-  }
-  void *sym = real_dlsym(handle, name);
-  if (active && sym && name && (strcmp(name, "RAND_bytes") == 0 || strcmp(name, "RAND_priv_bytes") == 0))
-    return (void *)sluice_RAND_bytes;
-  return sym;
+  if (!real_dlsym) resolve_dlsym();
+  if (!real_dlsym) return NULL;
+  if (!active || handle == RTLD_NEXT || handle == RTLD_DEFAULT || !is_rand_bytes(name))
+    return real_dlsym(handle, name);
+  return real_dlsym(handle, name) ? (void *)sluice_RAND_bytes : NULL;
 }
 #endif

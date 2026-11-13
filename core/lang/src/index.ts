@@ -208,32 +208,60 @@ export function isDependencyManifest(file: string): boolean {
   return Object.values(TOOLCHAINS).some((t) => t.manifest.test(file));
 }
 
+/** A detected toolchain and the project root it was found at. */
+export type DetectedToolchain = Toolchain & {
+  /** Project root relative to the scanned directory (`.` or a child directory, `/`-separated). */
+  root: string;
+};
+
 /**
  * Detect the toolchain of a project directory from its root files: `go.mod`
- * → go, a `*.csproj`/`*.sln`/`*.slnx` (or `global.json`) → dotnet,
- * `package.json` → node. Returns undefined when nothing matches.
+ * / `go.work` → go, a `*.csproj`/`*.sln`/`*.slnx` (or `global.json`) →
+ * dotnet, `package.json` → node. Otherwise one level down (`backend/go.mod`,
+ * `Api/Api.csproj`): the child directory becomes the project `root` — for
+ * .NET a child holding a solution wins; when several children qualify the
+ * root stays `.` (ambiguous; configure commands explicitly). Returns
+ * undefined when nothing matches.
  */
-export function detectToolchain(dir: string): Toolchain | undefined {
+export function detectToolchain(dir: string): DetectedToolchain | undefined {
   if (!existsSync(dir)) return undefined;
-  const names = readdirSync(dir);
-  if (names.includes('go.mod') || names.includes('go.work')) return TOOLCHAINS.go;
+  const names = readdirSync(dir).sort();
+  const at = (t: Toolchain, root: string): DetectedToolchain => ({ ...t, root });
+  if (names.includes('go.mod') || names.includes('go.work')) return at(TOOLCHAINS.go, '.');
   if (names.some((n) => /\.(csproj|fsproj|sln|slnx)$/.test(n)) || names.includes('global.json'))
-    return TOOLCHAINS.dotnet;
-  if (names.includes('package.json')) return TOOLCHAINS.node;
-  // one level down (e.g. src/App/App.csproj, cmd/… go.mod in a subdir)
+    return at(TOOLCHAINS.dotnet, '.');
+  if (names.includes('package.json')) return at(TOOLCHAINS.node, '.');
+  const go: string[] = [];
+  const sln: string[] = [];
+  const proj: string[] = [];
   for (const n of names) {
     if (SKIP_DIRS.has(n)) continue;
     const p = join(dir, n);
     try {
       if (!statSync(p).isDirectory()) continue;
       const sub = readdirSync(p);
-      if (sub.includes('go.mod')) return TOOLCHAINS.go;
-      if (sub.some((s) => /\.(csproj|fsproj)$/.test(s))) return TOOLCHAINS.dotnet;
+      if (sub.includes('go.mod') || sub.includes('go.work')) go.push(n);
+      if (sub.some((s) => /\.(sln|slnx)$/.test(s))) sln.push(n);
+      else if (sub.some((s) => /\.(csproj|fsproj)$/.test(s))) proj.push(n);
     } catch {
       // unreadable: ignore
     }
   }
+  const pick = (c: string[]) => (c.length === 1 ? c[0]! : '.');
+  if (go.length) return at(TOOLCHAINS.go, pick(go));
+  if (sln.length) return at(TOOLCHAINS.dotnet, pick(sln));
+  if (proj.length) return at(TOOLCHAINS.dotnet, pick(proj));
   return undefined;
+}
+
+/** POSIX shell quoting (bare when safe). */
+export function shellQuote(s: string): string {
+  return /^[\w./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** `command` run from `root` (relative; `.` = as is). */
+export function inRoot(root: string, command: string): string {
+  return !root || root === '.' ? command : `cd ${shellQuote(root)} && ${command}`;
 }
 
 /** Dependency manifests of `toolchain` under `dir` (relative, sorted; skips build output / vendored dirs). */

@@ -36,5 +36,7 @@ ESLint rule and `test/unit/architecture.test.ts`). Every command and MCP tool
 - **Least privilege for agents.** Agents hold short-lived, task-scoped broker
   tokens, never real credentials. ([ADR-0006](/adr/0006-policy-and-rules))
 - **Coordinate on symbols, not files.** Leases and interface-change
-  broadcasts are computed from a TypeScript language-service index.
+  broadcasts are computed from a symbol index: the TypeScript language
+  service for TS/JS, package- and namespace-aware tree-sitter indexes for Go
+  and C# ([languages](/languages)).
   ([ADR-0007](/adr/0007-coordination))

@@ -13,7 +13,7 @@ import {
   patchGoFile,
   type GoProbe,
 } from '../src/determinism/index.js';
-import { goAssets } from '../src/determinism/go.js';
+import { goAssets, goBuildEnv, goWarmDockerfile } from '../src/determinism/go.js';
 
 // Excerpts of the real GOROOT sources (go1.27) around each patch point.
 const TIME_GO = `package time
@@ -192,6 +192,20 @@ describe('go overlay', () => {
     expect(a['mathrand.go']).toContain('sluiceRuntimeRand()');
     expect(a['http.go']).toContain('os.SluiceStdoutTap = sluiceTap');
     expect(a['http.go']).toContain('time.SluiceSetNowMs(');
+  });
+});
+
+describe('go warm-cache image', () => {
+  it('compiles the overlaid stdlib with the service build env, offline, into the image layer', () => {
+    const env = goBuildEnv({ CGO_ENABLED: '0', GOPROXY: 'https://x', PORT: '1', GOFLAGS: "-tags=it's" });
+    expect(env).toEqual({ CGO_ENABLED: '0', GOFLAGS: "-tags=it's" });
+    const df = goWarmDockerfile('golang:1.27-alpine', '/app', env, "-tags=it's -overlay=/sluice/go/overlay.json");
+    expect(df).toMatch(/^FROM golang:1\.27-alpine\nCOPY \. \/sluice\/go\/\nRUN /);
+    expect(df).toContain(`export GOFLAGS='-tags=it'\\''s -overlay=/sluice/go/overlay.json'`);
+    expect(df).toContain("export CGO_ENABLED='0'");
+    expect(df).toContain("export GOTOOLCHAIN='local'; export GOPROXY='off'; go build std");
+    expect(df).toContain("cd '/app'");
+    expect(df).not.toMatch(/VOLUME|ENTRYPOINT|CMD/); // keeps the service image's own
   });
 });
 

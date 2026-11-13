@@ -62,10 +62,18 @@ Campaigns work the same on Go modules and .NET solutions (examples:
 - Dependencies are fetched by a **prepare** step before the offline tests: an
   image `FROM` the evidence image holding only the workspace's dependency
   manifests runs the prepare command in the repo's directory with network at
-  build time (cached by manifest content). Default: on for Go (`go mod
-download`) and .NET (`dotnet restore` of every project), off for Node.
-  Override with `prepare:` on the campaign, a repo or a step — a command,
-  `true` (toolchain default) or `false`.
+  build time (cached by the base image ID and manifest content). Default: on
+  for Go (`go mod download`) and .NET (`dotnet restore` of every project), off
+  for Node; it runs at the repo's detected project root (`backend/go.mod` →
+  `cd <repo> && cd backend && …`). Override with `prepare:` on the campaign, a
+  repo or a step — a command, `true` (toolchain default) or `false`.
+- Prepare **executes the repos' build logic with network** at image build
+  time: `dotnet restore` evaluates every imported MSBuild file
+  (`Directory.Build.props`/`.targets`, custom restore targets, NuGet plugins
+  from `NuGet.config`); Go honours `go.mod` directives (`toolchain` downloads,
+  replaces) but never runs `go generate`. Run campaigns only over repos whose
+  build files you trust, or set `prepare: false` with an `image` that already
+  has the dependencies. The evidence tests themselves run with no network.
 - Consumers that build against the sibling library checkout
   (`replace example.com/money => ../shared-money` in `go.mod`,
   `<ProjectReference Include="../../shared-money/…">`) see the library's

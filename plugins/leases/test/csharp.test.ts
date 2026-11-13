@@ -112,7 +112,7 @@ public class Billing
 };
 
 const deps = (idx: SymbolIndex, id: string) => idx.dependents(id).map((s) => s.id);
-const INVOICE = 'App/Models/Invoice.cs#Invoice'; // partial: id uses the part in the file named after the type
+const INVOICE = 'App/Models/Invoice.cs#Acme.Models.Invoice'; // partial: id uses the part in the file named after the type
 
 describe('C# symbol index (tree-sitter, namespace-aware)', () => {
   let dir: string;
@@ -124,25 +124,32 @@ describe('C# symbol index (tree-sitter, namespace-aware)', () => {
 
   it('indexes type declarations (block + file-scoped namespaces, nested, records); skips bin/', () => {
     expect(idx.symbols().map((s) => s.id)).toEqual([
-      'App/Models/Invoice.cs#IEntity',
+      'App/Models/Invoice.cs#Acme.Models.IEntity',
       INVOICE,
-      'App/Models/Invoice.cs#Invoice.Hidden',
-      'App/Models/Invoice.cs#Invoice.Line',
-      'App/Services/Billing.cs#Billing',
-      'App/Services/Reports.cs#Other',
-      'App/Services/Reports.cs#Reports',
-      'App/Shared/Money.cs#AuditedAttribute',
-      'App/Shared/Money.cs#Helpers',
-      'App/Shared/Money.cs#Money',
-      'App/Shared/Money.cs#MoneyExtensions',
-      'App/Util/Unrelated.cs#Invoice',
-      'App/Util/Unrelated.cs#UsesLocal',
+      'App/Models/Invoice.cs#Acme.Models.Invoice.Hidden',
+      'App/Models/Invoice.cs#Acme.Models.Invoice.Line',
+      'App/Services/Billing.cs#Acme.Services.Billing',
+      'App/Services/Reports.cs#Acme.Services.Other',
+      'App/Services/Reports.cs#Acme.Services.Reports',
+      'App/Shared/Money.cs#Acme.Shared.AuditedAttribute',
+      'App/Shared/Money.cs#Acme.Shared.Helpers',
+      'App/Shared/Money.cs#Acme.Shared.Money',
+      'App/Shared/Money.cs#Acme.Shared.MoneyExtensions',
+      'App/Util/Unrelated.cs#Other.Place.Invoice',
+      'App/Util/Unrelated.cs#Other.Place.UsesLocal',
     ]);
-    expect(idx.get('App/Shared/Money.cs#Money')).toMatchObject({ kind: 'record', exported: true, language: 'csharp' });
-    expect(idx.get('App/Models/Invoice.cs#IEntity')!.kind).toBe('interface');
-    expect(idx.get('App/Services/Reports.cs#Other')!.exported).toBe(true); // internal: visible assembly-wide
-    expect(idx.get('App/Models/Invoice.cs#Invoice.Hidden')!.exported).toBe(false);
-    expect(idx.get('App/Models/Invoice.cs#Invoice.Line')).toMatchObject({ exported: true, container: INVOICE });
+    expect(idx.get('App/Shared/Money.cs#Acme.Shared.Money')).toMatchObject({
+      kind: 'record',
+      exported: true,
+      language: 'csharp',
+    });
+    expect(idx.get('App/Models/Invoice.cs#Acme.Models.IEntity')!.kind).toBe('interface');
+    expect(idx.get('App/Services/Reports.cs#Acme.Services.Other')!.exported).toBe(true); // internal: visible assembly-wide
+    expect(idx.get('App/Models/Invoice.cs#Acme.Models.Invoice.Hidden')!.exported).toBe(false);
+    expect(idx.get('App/Models/Invoice.cs#Acme.Models.Invoice.Line')).toMatchObject({
+      exported: true,
+      container: INVOICE,
+    });
   });
 
   it('a partial class is one symbol; symbolsAt works for every part and prefers nested types', () => {
@@ -154,29 +161,40 @@ describe('C# symbol index (tree-sitter, namespace-aware)', () => {
     };
     expect(at('App/Models/Invoice.cs', 'return 1;')).toEqual([INVOICE]);
     expect(at('App/Models/Invoice.Extra.cs', 'Currency')).toEqual([INVOICE]);
-    expect(at('App/Models/Invoice.cs', 'Qty')).toEqual(['App/Models/Invoice.cs#Invoice.Line']);
+    expect(at('App/Models/Invoice.cs', 'Qty')).toEqual(['App/Models/Invoice.cs#Acme.Models.Invoice.Line']);
   });
 
   it('resolves references through namespaces, usings, aliases, global usings and qualified names', () => {
-    expect(deps(idx, INVOICE)).toEqual(['App/Services/Billing.cs#Billing', 'App/Services/Reports.cs#Reports']);
-    expect(deps(idx, 'App/Util/Unrelated.cs#Invoice')).toEqual(['App/Util/Unrelated.cs#UsesLocal']);
-    expect(deps(idx, 'App/Models/Invoice.cs#Invoice.Line')).toEqual(['App/Services/Billing.cs#Billing']);
-    expect(deps(idx, 'App/Models/Invoice.cs#IEntity')).toEqual([INVOICE]);
-    expect(deps(idx, 'App/Shared/Money.cs#Money')).toEqual([
-      'App/Services/Billing.cs#Billing',
-      'App/Shared/Money.cs#MoneyExtensions',
+    expect(deps(idx, INVOICE)).toEqual([
+      'App/Services/Billing.cs#Acme.Services.Billing',
+      'App/Services/Reports.cs#Acme.Services.Reports',
+    ]);
+    expect(deps(idx, 'App/Util/Unrelated.cs#Other.Place.Invoice')).toEqual([
+      'App/Util/Unrelated.cs#Other.Place.UsesLocal',
+    ]);
+    expect(deps(idx, 'App/Models/Invoice.cs#Acme.Models.Invoice.Line')).toEqual([
+      'App/Services/Billing.cs#Acme.Services.Billing',
+    ]);
+    expect(deps(idx, 'App/Models/Invoice.cs#Acme.Models.IEntity')).toEqual([INVOICE]);
+    expect(deps(idx, 'App/Shared/Money.cs#Acme.Shared.Money')).toEqual([
+      'App/Services/Billing.cs#Acme.Services.Billing',
+      'App/Shared/Money.cs#Acme.Shared.MoneyExtensions',
     ]);
   });
 
   it('resolves attributes, using static members and extension methods', () => {
-    expect(deps(idx, 'App/Shared/Money.cs#AuditedAttribute')).toEqual(['App/Services/Billing.cs#Billing']);
-    const helpers = idx.references('App/Shared/Money.cs#Helpers').map((r) => r.line);
+    expect(deps(idx, 'App/Shared/Money.cs#Acme.Shared.AuditedAttribute')).toEqual([
+      'App/Services/Billing.cs#Acme.Services.Billing',
+    ]);
+    const helpers = idx.references('App/Shared/Money.cs#Acme.Shared.Helpers').map((r) => r.line);
     expect(helpers).toContain(lineOf(dir, 'App/Services/Billing.cs', 'Clamp(3)'));
-    expect(deps(idx, 'App/Shared/Money.cs#MoneyExtensions')).toEqual(['App/Services/Billing.cs#Billing']);
+    expect(deps(idx, 'App/Shared/Money.cs#Acme.Shared.MoneyExtensions')).toEqual([
+      'App/Services/Billing.cs#Acme.Services.Billing',
+    ]);
   });
 
   it('does not count names shadowed by a parameter or local', () => {
-    const lines = idx.references('App/Shared/Money.cs#Money').map((r) => `${r.file}:${r.line}`);
+    const lines = idx.references('App/Shared/Money.cs#Acme.Shared.Money').map((r) => `${r.file}:${r.line}`);
     expect(lines).toContain(`App/Services/Billing.cs:${lineOf(dir, 'App/Services/Billing.cs', 'return Money.Zero')}`);
     expect(lines).not.toContain(`App/Services/Billing.cs:${lineOf(dir, 'App/Services/Billing.cs', '// shadowed')}`);
     expect(lines).not.toContain(`App/Services/Billing.cs:${lineOf(dir, 'App/Services/Billing.cs', 'int Money')}`);
@@ -201,16 +219,16 @@ describe('C# symbol index (tree-sitter, namespace-aware)', () => {
         'App/Models/Invoice.Extra.cs': (s) => s.replace('}\n', '    public decimal Tax { get; set; }\n}\n'),
         'App/Models/Invoice.cs': (s) => s.replace('public int Qty', 'public long Qty'),
       }),
-    ).toEqual([`changed ${INVOICE}`, 'changed App/Models/Invoice.cs#Invoice.Line']);
+    ).toEqual([`changed ${INVOICE}`, 'changed App/Models/Invoice.cs#Acme.Models.Invoice.Line']);
     expect(changed({ 'App/Shared/Money.cs': (s) => s.replace('Money(decimal Amount', 'Money(long Amount') })).toEqual([
-      'changed App/Shared/Money.cs#Money',
+      'changed App/Shared/Money.cs#Acme.Shared.Money',
     ]);
   });
 });
 
 describe('C# lease flow (coord-demo-dotnet)', () => {
-  const INV = 'src/CoordDemo/Types/Invoice.cs#Invoice';
-  const REPORT = 'src/CoordDemo/Reporting/Report.cs#Report';
+  const INV = 'src/CoordDemo/Types/Invoice.cs#CoordDemo.Types.Invoice';
+  const REPORT = 'src/CoordDemo/Reporting/Report.cs#CoordDemo.Reporting.Report';
   let repo: DemoRepo;
   beforeAll(() => {
     repo = new DemoRepo(EXAMPLE);
@@ -219,10 +237,10 @@ describe('C# lease flow (coord-demo-dotnet)', () => {
   it('indexes the demo', () => {
     const idx = SymbolIndex.build(repo.dir);
     expect(idx.dependents(INV).map((s) => s.id)).toEqual([
-      'src/CoordDemo/Billing/InvoiceFactory.cs#InvoiceFactory',
+      'src/CoordDemo/Billing/InvoiceFactory.cs#CoordDemo.Billing.InvoiceFactory',
       REPORT,
     ]);
-    expect(idx.dependents('src/CoordDemo/Util/Slug.cs#Slug')).toEqual([]);
+    expect(idx.dependents('src/CoordDemo/Util/Slug.cs#CoordDemo.Util.Slug')).toEqual([]);
   });
 
   it('leases, broadcasts interface changes to dependents and blocks conflicting edits before merge', async () => {
@@ -281,5 +299,141 @@ describe('C# lease flow (coord-demo-dotnet)', () => {
     expect(check.out).toContain(`CONFLICT ${INV}`);
     expect((await repo.cli('lease', 'list')).out).not.toContain('agent-b');
     expect((await repo.cli('lease', 'check', '--agent', 'agent-a', '--task', 'T-A', '--head', 'agent-a')).code).toBe(0);
+  });
+});
+
+describe('C# symbol identity (namespace + enclosing types + generic arity)', () => {
+  const FILES: Record<string, string> = {
+    'sluice.yaml': 'version: 1\nname: ids\n',
+    'Ids/Ids.csproj': '<Project Sdk="Microsoft.NET.Sdk" />\n',
+    'Ids/Types.cs': `namespace A
+{
+    public class Item
+    {
+        public int X { get; set; }
+    }
+}
+
+namespace B
+{
+    public class Item
+    {
+        public int Y { get; set; }
+    }
+}
+
+namespace C
+{
+    using A;
+
+    public class UsesA
+    {
+        public Item? I;
+    }
+}
+
+namespace D
+{
+    public class UsesB
+    {
+        public B.Item? I;
+    }
+}
+
+public class Box
+{
+    public int V;
+}
+
+public partial class Box<T>
+{
+    public T? V;
+}
+
+public class UsesBox
+{
+    public Box? P;
+}
+
+public class UsesGenericBox
+{
+    public Box<int>? Q;
+    public System.Type T = typeof(Box<>);
+}
+`,
+    'Ids/Z.cs': 'public partial class Box<T>\n{\n    public T? W;\n}\n',
+  };
+  const AITEM = 'Ids/Types.cs#A.Item';
+  const BITEM = 'Ids/Types.cs#B.Item';
+  const BOX = 'Ids/Types.cs#Box';
+  const BOX1 = 'Ids/Types.cs#Box`1';
+
+  it('same-named types in different namespaces of one file, and Box vs Box<T>, are distinct symbols', () => {
+    const dir = writeTree(FILES);
+    const idx = SymbolIndex.build(dir);
+    expect(idx.symbols().map((s) => s.id)).toEqual([
+      AITEM,
+      BITEM,
+      BOX,
+      BOX1,
+      'Ids/Types.cs#C.UsesA',
+      'Ids/Types.cs#D.UsesB',
+      'Ids/Types.cs#UsesBox',
+      'Ids/Types.cs#UsesGenericBox',
+    ]);
+    expect(idx.get(BOX1)!.parts?.map((p) => p.file)).toEqual(['Ids/Types.cs', 'Ids/Z.cs']); // partial Box<T> only
+    expect(idx.get(BOX)!.parts).toBeUndefined();
+    const at = (needle: string) => {
+      const l = lineOf(dir, 'Ids/Types.cs', needle);
+      return idx.symbolsAt('Ids/Types.cs', [[l, l]]).map((s) => s.id);
+    };
+    expect(at('int X')).toEqual([AITEM]);
+    expect(at('int Y')).toEqual([BITEM]);
+    expect(at('public int V;')).toEqual([BOX]);
+    expect(at('public T? V;')).toEqual([BOX1]);
+    const deps = (id: string) => idx.dependents(id).map((s) => s.id);
+    expect(deps(AITEM)).toEqual(['Ids/Types.cs#C.UsesA']);
+    expect(deps(BITEM)).toEqual(['Ids/Types.cs#D.UsesB']);
+    expect(deps(BOX)).toEqual(['Ids/Types.cs#UsesBox']);
+    expect(deps(BOX1)).toEqual(['Ids/Types.cs#UsesGenericBox']);
+    const changes = interfaceChanges(
+      idx,
+      SymbolIndex.build(variant(dir, { 'Ids/Types.cs': (s) => s.replace('int X', 'long X') })),
+    );
+    expect(changes.map((c) => c.id)).toEqual([AITEM]);
+    const generic = interfaceChanges(
+      idx,
+      SymbolIndex.build(variant(dir, { 'Ids/Z.cs': (s) => s.replace('T? W', 'T? W2') })),
+    );
+    expect(generic.map((c) => c.id)).toEqual([BOX1]);
+  });
+
+  it('leases, conflicts and broadcasts per type, not per file name', async () => {
+    const repo = new DemoRepo(writeTree(FILES));
+    repo.agentEdit('agent-c', { 'Ids/Types.cs': (s) => s.replace('public Item? I;', 'public Item? I = null;') }, 'c');
+    const c = await repo.cli('lease', 'sync', '--agent', 'agent-c', '--task', 'T-C', '--head', 'agent-c');
+    expect(c.code).toBe(0);
+    expect(c.out).toContain('leased Ids/Types.cs#C.UsesA\n');
+
+    repo.agentEdit('agent-a', { 'Ids/Types.cs': (s) => s.replace('int X', 'long X') }, 'a');
+    const a = await repo.cli('lease', 'sync', '--agent', 'agent-a', '--task', 'T-A', '--head', 'agent-a');
+    expect(a.code).toBe(0);
+    expect(a.out).toContain(`leased ${AITEM}\n`);
+    expect(a.out).toContain(`interface changed: ${AITEM}`);
+    expect(a.out).toContain('notified agent-c');
+
+    // same file, same simple name, other namespace: no conflict, and agent-c (UsesA) is not notified
+    repo.agentEdit('agent-b', { 'Ids/Types.cs': (s) => s.replace('int Y', 'long Y') }, 'b');
+    const b = await repo.cli('lease', 'sync', '--agent', 'agent-b', '--task', 'T-B', '--head', 'agent-b');
+    expect(b.code).toBe(0);
+    expect(b.out).toContain(`leased ${BITEM}\n`);
+    expect(b.out).not.toContain('notified');
+
+    // a second edit of A.Item conflicts
+    repo.agentEdit('agent-d', { 'Ids/Types.cs': (s) => s.replace('int X', 'short X') }, 'd');
+    const d = await repo.cli('lease', 'check', '--agent', 'agent-d', '--task', 'T-D', '--head', 'agent-d');
+    expect(d.code).toBe(1);
+    expect(d.out).toContain(`CONFLICT ${AITEM} is leased by agent-a for T-A`);
+    expect(d.out).not.toContain(BITEM);
   });
 });

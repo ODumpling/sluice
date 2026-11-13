@@ -15,6 +15,7 @@ Spec: [docs/GOAL.md](docs/GOAL.md). Each milestone lists exit criteria and the c
 | M6 Coordination      | not started |
 | M7 Campaign          | not started |
 | M8 Polish            | not started |
+| M9 Go/.NET parity    | done        |
 
 ## M0 Skeleton — done
 
@@ -192,6 +193,25 @@ ADR-0009.
 | examples                                                 | `examples/{billing-demo,bench,coord-demo,campaign}` each with README and tests that run them                                                                                                                                                                          |
 | CONTRIBUTING, license (Apache-2.0 core), security policy | `CONTRIBUTING.md`, `LICENSE`, `NOTICE`, `SECURITY.md`; `test/unit/architecture.test.ts` checks every package is Apache-2.0                                                                                                                                            |
 | release v0.1.0 to npm as `@sluice-dev/cli`               | tag `v0.1.0`; `.github/workflows/release.yml`; CI job `packaging` (`pnpm pack:smoke`: tarballs install with npm and the `sluice` binary works). **Publishing needs an `NPM_TOKEN` secret with rights to the `@sluice-dev` scope** — not available in this environment |
+
+## M9 Go and .NET parity — done
+
+Delivered: `@sluice-dev/lang`; `determinism: go|dotnet` (ADR-0010); Go/C#
+mutation proof with `invalid` mutants; Go/C# symbol leases; Go/C# rules,
+review-comment rules and codemods; bench/campaign `prepare` images and
+toolchain defaults; `sluice init` toolchain detection; Go and .NET ports of
+billing-demo, coord-demo and campaign; `pnpm demo -- --lang go|dotnet`;
+[docs/languages.md](docs/languages.md).
+
+| Exit criterion                                  | Proof                                                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| north-star gate story holds on Go and .NET      | `test/e2e/north-star-go.itest.ts`, `test/e2e/north-star-dotnet.itest.ts` (bad PR fails the same 3/5 scenarios with diff + mutation; good PR 5/5) |
+| deterministic Go/.NET sandboxes                 | `core/sandbox/test/go-determinism.itest.ts`, `core/sandbox/test/dotnet-determinism.itest.ts` (frozen/moved clock, seeded replay, events, egress) |
+| Go/C# mutation operators compile                | `plugins/gate/test/mutation-languages.test.ts` (go build / dotnet build of every fixture mutant)                                                 |
+| Go/C# leases, conflicts, broadcast              | `plugins/leases/test/{go,csharp,mixed}.test.ts`                                                                                                  |
+| Go/C# rules from review comments, codemods      | `plugins/rules/test/rules-languages.test.ts`, `core/policy/test/rules-languages.test.ts`, `plugins/campaign/test/codemod.test.ts`                |
+| Go/.NET bench mining + campaigns (offline deps) | `plugins/bench/test/toolchains.itest.ts`, `plugins/campaign/test/campaign.itest.ts`                                                              |
+| `sluice init` per toolchain                     | `surfaces/cli/test/cli.test.ts`                                                                                                                  |
 
 # Final acceptance
 

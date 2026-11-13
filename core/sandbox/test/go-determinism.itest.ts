@@ -49,6 +49,20 @@ describe('go determinism shim (golang:1.27-alpine)', () => {
   it('has zero real egress', async () => {
     await egressScenario(sb);
   });
+
+  it('gives every container a private build cache (code under test cannot poison later runs)', async () => {
+    const gocache = (await sb.exec('app', ['go', 'env', 'GOCACHE'])).stdout.trim();
+    expect(gocache).not.toBe('');
+    // the overlaid stdlib is already in the cache the container started with
+    expect((await sb.exec('app', ['sh', '-c', `ls ${gocache} | wc -l`])).stdout.trim()).not.toBe('0');
+    await sb.exec('app', ['sh', '-c', `echo poisoned > ${gocache}/README && touch ${gocache}/sluice-poison`]);
+    await sb.reset();
+    expect((await sb.exec('app', ['sh', '-c', `ls ${gocache}/sluice-poison 2>&1 || true`])).stdout).toMatch(
+      /No such file/,
+    );
+    const mounts = await docker(['inspect', '-f', '{{json .Mounts}}', `sluice-${sb.id}-app`]);
+    expect(mounts.stdout).not.toContain(gocache);
+  });
 });
 
 describe('go determinism shim: oldest supported toolchain (golang:1.22-alpine)', () => {

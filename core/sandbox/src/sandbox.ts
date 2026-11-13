@@ -479,7 +479,7 @@ export class Sandbox {
       args.push('-v', `${src}:${svc.workdir.replace(/\/$/, '')}/${svc.source}:ro`);
     }
     for (const [k, v] of Object.entries(env)) args.push('-e', `${k}=${v}`);
-    args.push(this.images.get(name)!, ...(shim.command ?? svc.command ?? []));
+    args.push(shim.image ?? this.images.get(name)!, ...(shim.command ?? svc.command ?? []));
     await docker(args);
   }
 

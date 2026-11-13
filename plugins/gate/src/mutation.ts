@@ -3,7 +3,7 @@
  * approved checks notice. Mutants are generated only on lines the PR changed:
  * JS/TS with the TypeScript compiler API, Go and C# on tree-sitter (via
  * `@sluice-dev/lang`). Go/C# mutants are built to compile (syntactic type
- * hints only); one that still fails to build/start is reported `invalid` by
+ * hints only); one that still fails to compile is reported `invalid` by
  * the gate and does not count either way.
  */
 import { EXTENSIONS, languageOf, parseSource } from '@sluice-dev/lang';

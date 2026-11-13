@@ -300,3 +300,75 @@ describe('Go lease flow (coord-demo-go)', () => {
     expect((await repo.cli('lease', 'check', '--agent', 'agent-a', '--task', 'T-A', '--head', 'agent-a')).code).toBe(0);
   });
 });
+
+describe('Go symbol identity', () => {
+  const FILES: Record<string, string> = {
+    'go.mod': 'module example.com/ids\n\ngo 1.23\n',
+    'fs/types.go': `package fs
+
+type A struct{}
+
+func (a A) Close() error { return nil }
+
+type B struct{}
+
+func (b *B) Close() error { return nil }
+
+type Box[T any] struct{ v T }
+
+func (b *Box[T]) Get() T { return b.v }
+
+func init() {}
+
+func init() {}
+`,
+    'fs/open_linux.go':
+      '//go:build linux\n\npackage fs\n\nfunc Open() int { return 1 }\n\ntype File struct{}\n\nfunc (f *File) Sync() {}\n',
+    'fs/open_darwin.go':
+      '//go:build darwin\n\npackage fs\n\nfunc Open() int { return 2 }\n\ntype File struct{}\n\nfunc (f *File) Sync() {}\n',
+    'app/app.go': `package app
+
+import "example.com/ids/fs"
+
+func CloseA(a fs.A) { a.Close() }
+
+func CloseB(b *fs.B) { b.Close() }
+
+func Get(b *fs.Box[int]) int { return b.Get() }
+
+func Opens() int { return fs.Open() }
+
+func Syncs(files []*fs.File) {
+	for _, f := range files {
+		f.Sync()
+	}
+}
+`,
+  };
+
+  it('methods are keyed by receiver; build-constrained twins all get the references', () => {
+    const idx = SymbolIndex.build(writeTree(FILES));
+    const ids = idx.symbols().map((s) => s.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'fs/types.go#A.Close',
+        'fs/types.go#B.Close',
+        'fs/types.go#Box',
+        'fs/types.go#Box.Get',
+        'fs/open_linux.go#Open',
+        'fs/open_darwin.go#Open',
+        'fs/open_linux.go#File.Sync',
+        'fs/open_darwin.go#File.Sync',
+      ]),
+    );
+    expect(idx.get('fs/types.go#init')!.parts).toHaveLength(2);
+    const deps = (id: string) => idx.dependents(id).map((s) => s.id);
+    expect(deps('fs/types.go#A.Close')).toEqual(['app/app.go#CloseA']);
+    expect(deps('fs/types.go#B.Close')).toEqual(['app/app.go#CloseB']);
+    expect(deps('fs/types.go#Box.Get')).toEqual(['app/app.go#Get']);
+    expect(deps('fs/open_linux.go#Open')).toEqual(['app/app.go#Opens']);
+    expect(deps('fs/open_darwin.go#Open')).toEqual(['app/app.go#Opens']);
+    expect(deps('fs/open_linux.go#File.Sync')).toEqual(['app/app.go#Syncs']);
+    expect(deps('fs/open_darwin.go#File.Sync')).toEqual(['app/app.go#Syncs']);
+  });
+});

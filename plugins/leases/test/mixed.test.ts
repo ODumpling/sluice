@@ -36,8 +36,8 @@ describe('mixed-language repository', () => {
   it('indexes every language with per-language references', () => {
     const idx = SymbolIndex.build(dir);
     expect(idx.symbols().map((s) => `${s.language} ${s.id}`)).toEqual([
-      'csharp dotnet/Shop/Order.cs#Order',
-      'csharp dotnet/Shop/View.cs#View',
+      'csharp dotnet/Shop/Order.cs#Shop.Order',
+      'csharp dotnet/Shop/View.cs#Shop.Views.View',
       'go svc/api/api.go#Show',
       'go svc/order/order.go#Order',
       'typescript web/src/types.ts#Order',
@@ -46,7 +46,7 @@ describe('mixed-language repository', () => {
     const deps = (id: string) => idx.dependents(id).map((s) => s.id);
     expect(deps('web/src/types.ts#Order')).toEqual(['web/src/view.ts#show']);
     expect(deps('svc/order/order.go#Order')).toEqual(['svc/api/api.go#Show']);
-    expect(deps('dotnet/Shop/Order.cs#Order')).toEqual(['dotnet/Shop/View.cs#View']);
+    expect(deps('dotnet/Shop/Order.cs#Shop.Order')).toEqual(['dotnet/Shop/View.cs#Shop.Views.View']);
     expect(SymbolIndex.build(dir, { languages: ['go'] }).symbols().length).toBe(2);
   });
 
@@ -61,17 +61,17 @@ describe('mixed-language repository', () => {
     git('checkout', '-q', 'main');
     const a = await analyzeChange(dir, 'main', 'feature');
     expect(a.touched.map((s) => s.id)).toEqual([
-      'dotnet/Shop/Order.cs#Order',
+      'dotnet/Shop/Order.cs#Shop.Order',
       'svc/order/order.go#Order',
       'web/src/types.ts#Order',
     ]);
     expect(a.interfaceChanges.map((c) => `${c.kind} ${c.id}`)).toEqual([
-      'changed dotnet/Shop/Order.cs#Order',
+      'changed dotnet/Shop/Order.cs#Shop.Order',
       'changed svc/order/order.go#Order',
       'changed web/src/types.ts#Order',
     ]);
     expect(a.dependents).toEqual({
-      'dotnet/Shop/Order.cs#Order': ['dotnet/Shop/View.cs#View'],
+      'dotnet/Shop/Order.cs#Shop.Order': ['dotnet/Shop/View.cs#Shop.Views.View'],
       'svc/order/order.go#Order': ['svc/api/api.go#Show'],
       'web/src/types.ts#Order': ['web/src/view.ts#show'],
     });

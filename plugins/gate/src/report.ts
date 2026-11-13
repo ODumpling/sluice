@@ -26,9 +26,9 @@ function diffLabel(e: DiffEntry): string {
 /** Mutants that built and started (the score's denominator). */
 const validMutants = (m: GateReport['mutation']) => m.total - (m.invalid ?? 0);
 
-/** " (2 more did not build/start, not scored)" or "". */
+/** " (2 more did not compile, not scored)" or "". */
 function invalidNote(m: GateReport['mutation']): string {
-  return m.invalid ? ` (${m.invalid} more did not build/start, not scored)` : '';
+  return m.invalid ? ` (${m.invalid} more did not compile, not scored)` : '';
 }
 
 const mutantStatus = (m: GateReport['mutation']['mutants'][number]) => m.status ?? (m.killed ? 'killed' : 'survived');
@@ -114,7 +114,7 @@ export function renderMarkdown(
           mutantStatus(m) === 'killed'
             ? `✅ \`${m.killedBy}\``
             : mutantStatus(m) === 'invalid'
-              ? '⛔ invalid — did not build/start (not scored)'
+              ? '⛔ invalid — did not compile (not scored)'
               : '⚠️ survived'
         } |`,
       );
@@ -181,7 +181,7 @@ ${
     : ''
 }
 <h2>Mutation proof</h2>
-<p>${m.enabled ? `Sluice deliberately broke the changed code ${validMutants(m)} way${validMutants(m) === 1 ? '' : 's'}; the approved checks caught <b>${m.killed}</b>${m.score === null ? '' : ` (${Math.round(m.score * 100)}%, threshold ${Math.round(m.threshold * 100)}%)`}.${m.invalid ? ` ${m.invalid} more mutant${m.invalid === 1 ? '' : 's'} did not build/start and ${m.invalid === 1 ? 'is' : 'are'} not scored.` : ''}` : 'Disabled.'}</p>
+<p>${m.enabled ? `Sluice deliberately broke the changed code ${validMutants(m)} way${validMutants(m) === 1 ? '' : 's'}; the approved checks caught <b>${m.killed}</b>${m.score === null ? '' : ` (${Math.round(m.score * 100)}%, threshold ${Math.round(m.threshold * 100)}%)`}.${m.invalid ? ` ${m.invalid} more mutant${m.invalid === 1 ? '' : 's'} did not compile and ${m.invalid === 1 ? 'is' : 'are'} not scored.` : ''}` : 'Disabled.'}</p>
 ${
   m.mutants.length
     ? `<div class="table-wrap"><table><thead><tr><th>where</th><th>mutation</th><th>result</th></tr></thead><tbody>${m.mutants
@@ -191,7 +191,7 @@ ${
               mutantStatus(x) === 'killed'
                 ? `<span class="killed">caught</span> by <code>${esc(x.killedBy)}</code>`
                 : mutantStatus(x) === 'invalid'
-                  ? `<span class="invalid">invalid</span> — did not build/start (not scored)${x.detail ? `<details><summary>output</summary><pre>${esc(x.detail)}</pre></details>` : ''}`
+                  ? `<span class="invalid">invalid</span> — did not compile (not scored)${x.detail ? `<details><summary>output</summary><pre>${esc(x.detail)}</pre></details>` : ''}`
                   : '<span class="survived">survived</span>'
             }</td></tr>`,
         )

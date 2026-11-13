@@ -250,7 +250,71 @@ async function prepare(image: string, log: (m: string) => void): Promise<GoShim>
   return shim;
 }
 
-/** Named volume holding the service's Go build cache across container restarts (seeded from the image). */
-export function goCacheVolume(shim: GoShim): string {
-  return `sluice-gocache-${shim.imageId.replace(/^sha256:/, '').slice(0, 16)}`;
+/** Go-relevant variables of a service's env (they change build cache keys). */
+export function goBuildEnv(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([k]) => /^(GO|CGO_)/.test(k) && k !== 'GOPROXY')
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+/** The Dockerfile of a warm image: the service image + the overlay + a stdlib (and image module) build. */
+export function goWarmDockerfile(image: string, workdir: string, env: Record<string, string>, goflags: string): string {
+  const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+  const exports = Object.entries({ ...env, GOFLAGS: goflags, GOTOOLCHAIN: 'local', GOPROXY: 'off' })
+    .map(([k, v]) => `export ${k}=${q(v)}`)
+    .join('; ');
+  return [
+    `FROM ${image}`,
+    `COPY . ${GO_MOUNT}/`,
+    // compile only (nothing runs): the stdlib with the overlay, and whatever module the image ships
+    `RUN ${exports}; go build std && cd ${q(workdir)} 2>/dev/null && ` +
+      `{ go build -o /tmp/sluice-warm/ ./... >/dev/null 2>&1 || true; rm -rf /tmp/sluice-warm; } || true`,
+    'LABEL sluice.image=1 sluice.gowarm=1',
+    '',
+  ].join('\n');
+}
+
+const warmInflight = new Map<string, Promise<string>>();
+
+/**
+ * A per-(image, overlay, build env) image whose GOCACHE already holds the
+ * overlaid stdlib. Service containers run from it: each gets the warm cache in
+ * its own copy-on-write layer, so code under test can never write into a cache
+ * another run (base, head, other mutants) reads. Built once, by Sluice only.
+ */
+export function prepareGoWarmImage(
+  image: string,
+  shim: GoShim,
+  workdir: string,
+  serviceEnv: Record<string, string>,
+  log: (m: string) => void = () => {},
+): Promise<string> {
+  const env = goBuildEnv(serviceEnv);
+  const overlayFlag = `-overlay=${GO_MOUNT}/overlay.json`;
+  const base = env.GOFLAGS ?? shim.goflags;
+  const goflags = base ? `${base} ${overlayFlag}` : overlayFlag;
+  const dockerfile = goWarmDockerfile(image, workdir, { ...env, GOFLAGS: goflags }, goflags);
+  const key = createHash('sha256').update(shim.imageId).update(shim.dir).update(dockerfile).digest('hex');
+  const tag = `sluice-gowarm-${shim.imageId.replace(/^sha256:/, '').slice(0, 12)}:${key.slice(0, 16)}`;
+  let p = warmInflight.get(tag);
+  if (!p) {
+    p = (async () => {
+      if ((await docker(['image', 'inspect', tag], { allowFail: true })).code === 0) return tag;
+      log(`determinism: go: building warm stdlib cache image ${tag}`);
+      const r = await docker(['build', '-q', '--network', 'none', '-t', tag, '-f', '-', shim.dir], {
+        input: dockerfile,
+        allowFail: true,
+        timeoutMs: 900_000,
+      });
+      if (r.code !== 0)
+        throw new DeterminismError(
+          `determinism: go: building ${tag} from ${image} failed:\n${(r.stdout + r.stderr).trim().slice(-2000)}`,
+        );
+      return tag;
+    })().finally(() => warmInflight.delete(tag));
+    warmInflight.set(tag, p);
+  }
+  return p;
 }

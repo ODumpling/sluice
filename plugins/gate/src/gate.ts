@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { loadConfig } from '@sluice-dev/config';
 import { diffSessions, startEvidenceSandbox, type DiffEntry } from '@sluice-dev/evidence';
-import { isTestFile, languageOf } from '@sluice-dev/lang';
+import { isTestFile, languageOf, type Language } from '@sluice-dev/lang';
 import { checkoutRef, git, type Checkout, type Sandbox } from '@sluice-dev/sandbox';
 import { applyMutant, changedLines, generateMutants, selectMutants, type Mutant } from './mutation.js';
 import { runScenario, type Failure, type ScenarioRun } from './runner.js';
@@ -40,8 +40,9 @@ export interface ScenarioReport {
 }
 
 /**
- * killed: a scenario's outcome changed; survived: none did; invalid: the
- * mutant build did not compile/start (excluded from the score).
+ * killed: a scenario's outcome changed, or the mutant app crashed / failed to
+ * start; survived: nothing changed; invalid: the mutant did not compile (Go/C#
+ * compiler errors only; excluded from the score).
  */
 export type MutantStatus = 'killed' | 'survived' | 'invalid';
 
@@ -69,7 +70,7 @@ export interface GateReport {
     /** Mutants run, including invalid ones. */
     total: number;
     killed: number;
-    /** Mutants whose build did not compile/start; not in the score's denominator. */
+    /** Mutants that did not compile; not in the score's denominator. */
     invalid?: number;
     /** killed / (total - invalid); null when no valid mutant ran. */
     score: number | null;
@@ -186,19 +187,22 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
             killed: false,
           };
           for (const [i, s] of approved.entries()) {
-            const r = await runMutantScenario(sb, s, tree, `mutant ${m.id}`);
+            const r = await runMutantScenario(sb, s, tree, `mutant ${m.id}`, {
+              language: languageOf(m.file),
+              log,
+            });
             if (r.kind === 'invalid') {
               report.status = 'invalid';
               report.detail = r.detail;
               break;
             }
-            if (r.kind === 'error' || r.run.passed !== baseline[i]) {
+            if (r.kind === 'broken' || r.run.passed !== baseline[i]) {
               report.status = 'killed';
               report.killed = true;
               report.killedBy = s.id;
               report.detail =
-                r.kind === 'error'
-                  ? `scenario errored: ${r.detail}`
+                r.kind === 'broken'
+                  ? r.detail
                   : r.run.passed
                     ? 'scenario started passing'
                     : (r.run.failures[0]?.message ?? 'failed');
@@ -210,7 +214,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
               report.status === 'killed'
                 ? `killed by ${report.killedBy}`
                 : report.status === 'invalid'
-                  ? `INVALID (did not build/start): ${gist(report.detail)}`
+                  ? `INVALID (does not compile): ${gist(report.detail)}`
                   : 'SURVIVED'
             }`,
           );
@@ -218,15 +222,10 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
         }
       }
     }
-    const killed = mutants.filter((m) => m.status === 'killed').length;
-    const invalid = mutants.filter((m) => m.status === 'invalid').length;
-    const valid = mutants.length - invalid;
-    const score = valid ? killed / valid : null;
-    if (failed.length === 0 && reasons.length === 0 && score !== null && score < mcfg.threshold) {
-      reasons.push(
-        `checks too weak: only ${killed}/${valid} deliberately broken versions were caught (threshold ${Math.round(mcfg.threshold * 100)}%${invalid ? `; ${invalid} mutant${invalid === 1 ? '' : 's'} did not build/start and ${invalid === 1 ? 'is' : 'are'} excluded` : ''})`,
-      );
-    }
+    const { killed, invalid, score, reason } = mutationOutcome(mutants, mcfg.threshold, {
+      othersFailing: failed.length > 0 || reasons.length > 0,
+    });
+    if (reason) reasons.push(reason);
 
     // ---------------------------------------------------------------- unit tests (informational)
     let unitTests: GateReport['unitTests'];
@@ -284,8 +283,61 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
   }
 }
 
+/**
+ * Score and verdict reason of a mutation proof. Invalid (non-compiling)
+ * mutants are left out of the score; if every mutant was invalid the proof is
+ * inconclusive and the gate fails rather than passing on no evidence. "Too
+ * weak" is only reported when nothing else already fails the gate.
+ */
+export function mutationOutcome(
+  mutants: Pick<MutantReport, 'status'>[],
+  threshold: number,
+  opts: { othersFailing?: boolean } = {},
+): { killed: number; invalid: number; score: number | null; reason?: string } {
+  const killed = mutants.filter((m) => m.status === 'killed').length;
+  const invalid = mutants.filter((m) => m.status === 'invalid').length;
+  const valid = mutants.length - invalid;
+  const score = valid ? killed / valid : null;
+  let reason: string | undefined;
+  if (mutants.length && !valid)
+    reason = `mutation proof inconclusive: all ${mutants.length} mutant${mutants.length === 1 ? '' : 's'} failed to compile`;
+  else if (!opts.othersFailing && score !== null && score < threshold)
+    reason = `checks too weak: only ${killed}/${valid} deliberately broken versions were caught (threshold ${Math.round(threshold * 100)}%${invalid ? `; ${invalid} mutant${invalid === 1 ? '' : 's'} did not compile and ${invalid === 1 ? 'is' : 'are'} excluded` : ''})`;
+  return { killed, invalid, score, ...(reason ? { reason } : {}) };
+}
+
+/**
+ * ran: the scenario completed (compare its outcome to head's); invalid: the
+ * mutant does not compile; broken: the mutant app crashed, exited or never got
+ * ready, or broke a request (killed).
+ */
 export type MutantRun =
-  { kind: 'ran'; run: ScenarioRun } | { kind: 'invalid'; detail: string } | { kind: 'error'; detail: string };
+  { kind: 'ran'; run: ScenarioRun } | { kind: 'invalid'; detail: string } | { kind: 'broken'; detail: string };
+
+/** Compiler error output of a service that builds at startup (`go build` / `dotnet build`). */
+const COMPILE_ERROR: Partial<Record<Language, RegExp>> = {
+  go: /\.go:\d+:\d+: |^# \S+\s*$/m,
+  csharp: /\berror CS\d{4}\b/,
+};
+
+/** The app process itself failed to come up (exit, crash, never ready). */
+const APP_STARTUP_FAILURE = /exited during startup|timed out after \d+ms waiting for/;
+
+/** Errors from talking to the app that mean the app broke the request (reset/closed/refused/hung). */
+const APP_REQUEST_FAILURE =
+  /ECONNRESET|ECONNREFUSED|EPIPE|UND_ERR_SOCKET|UND_ERR_CLOSED|other side closed|socket hang up|terminated/i;
+
+function errorText(e: unknown): string {
+  const err = e as (Error & { cause?: { message?: string; code?: string } }) | undefined;
+  return [err?.message ?? String(e), err?.cause?.code, err?.cause?.message].filter(Boolean).join(' ');
+}
+
+/** A request to the app failed because of the app (not Docker, a fake, the database or Sluice). */
+export function isAppRequestError(e: unknown): boolean {
+  const name = (e as Error | undefined)?.name;
+  if (name === 'TimeoutError') return true; // AbortSignal.timeout on the request: the app hung
+  return APP_REQUEST_FAILURE.test(errorText(e));
+}
 
 const firstLine = (s: string | undefined) => (s ?? '').split('\n')[0]!.slice(0, 200);
 
@@ -303,19 +355,45 @@ function startupDetail(e: unknown): string {
   return text.length > 4000 ? text.slice(0, 4000) + '…' : text;
 }
 
+type Attempt = MutantRun | { kind: 'sandbox'; detail: string };
+
 /**
- * Run one scenario against a mutant tree, telling apart a mutant that does
- * not build/start (the sandbox reset onto the tree throws: compile error, the
- * service exits or never gets ready) from one that starts and then misbehaves.
- * The former is `invalid`; a scenario that throws after startup (e.g. the
- * mutant crashes the app mid-request) is a behaviour change, i.e. killed.
+ * Run one scenario against a mutant tree and classify what went wrong:
+ *
+ * - the sandbox reset onto the tree throws with compiler output for the
+ *   mutant's language (Go `file.go:N:M:` / `# pkg`, C# `error CSnnnn`) →
+ *   `invalid` (never for JS/TS, which has no build step);
+ * - the app exits, crashes or never gets ready at startup → `broken` (killed);
+ * - after startup, a request to the app is reset/refused/closed or times out
+ *   → `broken` (killed); HTTP 5xx are ordinary responses, judged by the
+ *   scenario's expectations;
+ * - anything else (Docker, the database, fakes, Sluice itself) is a sandbox
+ *   error: the scenario is retried once, and counts as `broken` only if it
+ *   fails again.
  */
 export async function runMutantScenario(
   sb: Sandbox,
   scenario: Scenario,
   tree: string,
   label: string,
+  opts: { language?: Language; log?: (msg: string) => void } = {},
 ): Promise<MutantRun> {
+  const first = await attemptMutantScenario(sb, scenario, tree, label, opts.language);
+  if (first.kind !== 'sandbox') return first;
+  opts.log?.(`  ${label}: sandbox error, retrying ${scenario.id}: ${firstLine(first.detail)}`);
+  const second = await attemptMutantScenario(sb, scenario, tree, label, opts.language);
+  return second.kind === 'sandbox'
+    ? { kind: 'broken', detail: `sandbox error (after retry): ${second.detail}` }
+    : second;
+}
+
+async function attemptMutantScenario(
+  sb: Sandbox,
+  scenario: Scenario,
+  tree: string,
+  label: string,
+  language: Language | undefined,
+): Promise<Attempt> {
   let startupError: unknown;
   let failedStartup = false;
   const guarded = new Proxy(sb, {
@@ -337,7 +415,16 @@ export async function runMutantScenario(
   try {
     return { kind: 'ran', run: await runScenario(guarded, scenario, { sourceRoot: tree, label }) };
   } catch (e) {
-    if (failedStartup) return { kind: 'invalid', detail: startupDetail(startupError) };
-    return { kind: 'error', detail: firstLine((e as Error)?.message ?? String(e)) };
+    if (failedStartup) {
+      const full = errorText(startupError);
+      const detail = startupDetail(startupError);
+      const compile = language && COMPILE_ERROR[language];
+      if (compile && compile.test(full)) return { kind: 'invalid', detail };
+      if (APP_STARTUP_FAILURE.test(full)) return { kind: 'broken', detail: `app did not start: ${detail}` };
+      return { kind: 'sandbox', detail };
+    }
+    const detail = firstLine(errorText(e));
+    if (isAppRequestError(e)) return { kind: 'broken', detail: `scenario errored: ${detail}` };
+    return { kind: 'sandbox', detail };
   }
 }

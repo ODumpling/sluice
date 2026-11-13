@@ -6,13 +6,15 @@
  */
 import { createHash } from 'node:crypto';
 import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   defaultPrepare,
   detectToolchain,
+  inRoot,
   isDependencyManifest,
   isToolchainSourceFile,
   isToolchainTestFile,
-  type Toolchain,
+  type DetectedToolchain,
 } from '@sluice-dev/lang';
 import { git } from '@sluice-dev/sandbox';
 import { extractTree, pool, runTestsInContainer, writeFiles } from './tree.js';
@@ -80,7 +82,7 @@ export interface MineResult {
 }
 
 export interface ResolvedMining {
-  toolchain?: Toolchain;
+  toolchain?: DetectedToolchain;
   image: string;
   testCommand: string;
   prepare?: string;
@@ -94,7 +96,9 @@ export async function resolveMining(o: MineOptions): Promise<ResolvedMining> {
   const tree = await extractTree(o.repoDir, o.ref ?? 'HEAD');
   try {
     const toolchain = detectToolchain(tree);
-    const testCommand = o.testCommand ?? toolchain?.testCommand;
+    // toolchain defaults run at the detected project root (e.g. `cd backend && go test ./...`)
+    const root = toolchain?.root ?? '.';
+    const testCommand = o.testCommand ?? (toolchain && inRoot(root, toolchain.testCommand));
     if (!testCommand)
       throw new Error(
         `no toolchain detected in ${o.repo} at ${o.ref ?? 'HEAD'}; set mine.testCommand (and mine.image)`,
@@ -103,8 +107,11 @@ export async function resolveMining(o: MineOptions): Promise<ResolvedMining> {
     if (typeof o.prepare === 'string') prepare = o.prepare;
     else if (o.prepare === true) {
       if (!toolchain) throw new Error('mine.prepare: true needs a detected toolchain; give the command instead');
-      prepare = toolchain.prepareCommand;
-    } else if (o.prepare === undefined) prepare = defaultPrepare(toolchain, tree);
+      prepare = inRoot(root, toolchain.prepareCommand);
+    } else if (o.prepare === undefined) {
+      const p = defaultPrepare(toolchain, join(tree, root));
+      prepare = p && inRoot(root, p);
+    }
     const env = toolchain && Object.keys(toolchain.env).length ? toolchain.env : undefined;
     const testRe = o.tests ? new RegExp(o.tests) : undefined;
     const isTest = testRe ? (f: string) => testRe.test(f) : (f: string) => isToolchainTestFile(toolchain, f);

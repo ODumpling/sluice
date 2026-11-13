@@ -18,6 +18,7 @@ export default defineConfig({
           { text: 'What is Sluice', link: '/' },
           { text: 'Quickstart (<10 min)', link: '/quickstart' },
           { text: 'Concepts', link: '/concepts' },
+          { text: 'Languages (TS, Go, .NET)', link: '/languages' },
         ],
       },
       {

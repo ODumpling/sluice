@@ -7,6 +7,7 @@
 //
 //   node make-repos.mjs <out-dir>              # <out-dir>/go-textkit, <out-dir>/dotnet-textkit
 //   node make-repos.mjs <out-dir> --bundle     # also <out-dir>/<name>.bundle
+//   node make-repos.mjs <out-dir> --prefix backend   # the project lives in backend/ (nested root)
 //
 // The vendored examples/bench/{go,dotnet}-textkit.bundle were made with
 //   node synth/make-repos.mjs "$(mktemp -d)" --bundle  (then copied here).
@@ -345,7 +346,7 @@ ${cs(`    /// <summary>s reversed by text element (surrogate pairs and combining
   },
 ];
 
-function build(dir, commits) {
+function build(dir, commits, prefix = '') {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const env = {
@@ -361,8 +362,8 @@ function build(dir, commits) {
   git('init', '-q', '-b', 'main');
   commits.forEach((c, i) => {
     for (const [f, text] of Object.entries(c.files)) {
-      mkdirSync(dirname(join(dir, f)), { recursive: true });
-      writeFileSync(join(dir, f), text);
+      mkdirSync(dirname(join(dir, prefix, f)), { recursive: true });
+      writeFileSync(join(dir, prefix, f), text);
     }
     git('add', '-A');
     const date = `2026-01-${String(i + 1).padStart(2, '0')}T12:00:00Z`;
@@ -377,16 +378,17 @@ function build(dir, commits) {
 
 const [outArg, ...flags] = process.argv.slice(2);
 if (!outArg) {
-  process.stderr.write('usage: make-repos.mjs <out-dir> [--bundle]\n');
+  process.stderr.write('usage: make-repos.mjs <out-dir> [--bundle] [--prefix <dir>]\n');
   process.exit(2);
 }
 const out = resolve(outArg);
+const prefix = flags.includes('--prefix') ? flags[flags.indexOf('--prefix') + 1] : '';
 for (const [name, commits] of [
   ['go-textkit', GO],
   ['dotnet-textkit', DOTNET],
 ]) {
   const dir = join(out, name);
-  const head = build(dir, commits);
+  const head = build(dir, commits, prefix);
   if (flags.includes('--bundle'))
     execFileSync('git', ['bundle', 'create', '--quiet', join(out, `${name}.bundle`), 'main'], {
       cwd: dir,

@@ -36,6 +36,14 @@ describe('campaign evidence environment', () => {
     expect(web.options?.prepare).toBeUndefined(); // node: unchanged, no prepare unless asked
   });
 
+  it('nested project roots: the default prepare runs at the repo project root', () => {
+    const nested = ws({ 'api/backend/go.mod': 'module api\n', 'api/README.md': '' });
+    const c = campaign({ repos: [{ name: 'api', path: 'api' }] });
+    const env = evidenceEnv(c, {}, nested, 'api');
+    expect(env.image).toBe(TOOLCHAINS.go.image);
+    expect(env.options?.prepare?.command).toBe(`cd api && cd backend && ${TOOLCHAINS.go.prepareCommand}`);
+  });
+
   it('repo, campaign and step settings override the defaults', () => {
     expect(evidenceEnv(campaign({}), {}, dir, 'svc')).toMatchObject({
       image: 'my/go:1',

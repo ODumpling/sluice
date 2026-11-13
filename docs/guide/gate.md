@@ -116,9 +116,20 @@ syntax (there is no type checker):
 - No duplicate `case` labels, no array lengths or constant indexes, no
   `127`/`255`/`2147483647`… bumps that overflow a sized integer.
 
-A mutant that still fails to compile or start (the sandbox's service exits or
-never becomes ready when switched to the mutant tree) is reported **invalid**
-with the startup output: it counts neither as caught nor as survived, and the
-score is caught / (total − invalid). If every mutant is invalid the gate has
-no mutation score. A mutant that starts and then breaks a request (crash,
-reset connection) is caught.
+**How a mutant run is judged.** Switching the sandbox to the mutant tree
+restarts the app; then each approved scenario runs until one changes outcome.
+
+- **invalid** — startup failed with compiler output for the mutant's language
+  (Go `file.go:N:M: …` or a `# package` build header, C# `error CSnnnn`). It
+  counts neither as caught nor as survived; the score is caught / (total −
+  invalid). JS/TS mutants are never invalid. If _every_ mutant is invalid the
+  gate fails: `mutation proof inconclusive: all N mutants failed to compile`.
+- **caught** — a scenario's outcome changed, or the mutant broke the app: it
+  exited, crashed or never became ready at startup (`log.Fatal`, a panic, an
+  unhandled exception, a readiness timeout), or a request to it was reset,
+  refused, closed or timed out. HTTP 5xx responses are ordinary responses,
+  judged by the scenario's expectations.
+- Any other error — Docker, the database, a fake, Sluice itself — is treated
+  as a sandbox hiccup: the scenario is retried once, and only a second failure
+  counts the mutant as caught (with `sandbox error (after retry)` in the
+  report).

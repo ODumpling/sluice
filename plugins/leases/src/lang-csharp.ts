@@ -3,12 +3,17 @@
  *
  * Symbols are type declarations — class, struct, interface, record (class /
  * struct), enum, delegate — in the global namespace or in block / file-scoped
- * namespaces. Ids are `path#Name`; nested types are their own symbols
- * `path#Outer.Inner` (with `container` = the outer type). A partial type is ONE
- * symbol keyed by (project, namespace-qualified name): its id uses the first
- * primary part's file (the file named `<Type>.cs`, else the first by path),
- * `parts` lists every part (primary first), and `symbolsAt`
- * matches any part. Project = nearest directory with a `*.csproj` (else the root).
+ * namespaces. Ids are `path#<metadata name>`: namespace + enclosing types +
+ * generic arity in .NET metadata style, e.g. `Models/Invoice.cs#Acme.Models.Invoice`,
+ * `Box.cs#Acme.Box`1`, nested `…#Acme.Outer`1.Inner` (nested types are their
+ * own symbols, with `container` = the outer type; types in the global
+ * namespace are just `path#Name`). The same names key partial-type merging and
+ * reference lookups, so `Box` and `Box<T>`, or `A.Item` and `B.Item` in one
+ * file, are distinct symbols. A partial type is ONE symbol keyed by (project,
+ * metadata name): its id uses the primary part's file (the file named
+ * `<Type>.cs`, else the first by path), `parts` lists every part (primary
+ * first), and `symbolsAt` matches any part. Project = nearest directory with a
+ * `*.csproj` (else the root).
  *
  * `exported` = visible outside its file: top-level types unless `file`-local
  * (internal types are assembly-wide, so they count), nested types unless
@@ -69,7 +74,7 @@ interface CsFile {
 interface CsType {
   key: string;
   fqn: string;
-  /** Name inside its namespace (`Outer.Inner`). */
+  /** Metadata name inside its namespace (`Outer`1.Inner`). */
   path: string;
   name: string;
   ns: string;
@@ -147,6 +152,29 @@ const cleanName = (s: string) =>
     .replace(/^global::/, '')
     .replace(/<[^]*>/g, '')
     .replace(/\s+/g, '');
+
+/** Metadata-style name of a (possibly generic) type: `Box`, `Box`1`, `Dict`2`. */
+const keyOf = (name: string, arity: number) => (arity ? `${name}\`${arity}` : name);
+
+/** Number of type arguments in a `<…>` list (`<,>` in `typeof(Dict<,>)` counts 2). */
+function arityOf(list: SgNode | null | undefined): number {
+  if (!list) return 0;
+  const named = list.namedChildren().length;
+  return named || list.children().filter((c) => c.text() === ',').length + 1;
+}
+
+/** Dotted metadata-style name of a name node (`N.Box<int>.Inner` → `N.Box`1.Inner`). */
+function keyedName(n: SgNode | null | undefined): string {
+  if (!n) return '';
+  const k = n.kind() as string;
+  if (k === 'qualified_name') return join2(keyedName(n.field('qualifier')), keyedName(n.field('name')));
+  if (k === 'alias_qualified_name') return keyedName(n.field('name'));
+  if (k === 'generic_name') {
+    const id = n.namedChildren().find((c) => c.kind() === 'identifier');
+    return keyOf(id?.text() ?? '', arityOf(n.namedChildren().find((c) => c.kind() === 'type_argument_list')));
+  }
+  return cleanName(n.text());
+}
 
 /** Members accessible outside the type (everything but private / default-private). */
 function visibleMember(m: SgNode, containerKind: SymbolKind): boolean {
@@ -233,7 +261,7 @@ export class CSharpProvider implements SymbolProvider {
     const alias = u.field('name');
     const target = u.namedChildren().find((c) => c.id() !== alias?.id());
     if (!target) return;
-    const name = cleanName(target.text());
+    const name = keyedName(target);
     if (alias) into.aliases.set(alias.text(), name);
     else if (u.children().some((c) => !c.isNamed() && c.text() === 'static')) into.statics.push(name);
     else into.imports.push(name);
@@ -268,7 +296,9 @@ export class CSharpProvider implements SymbolProvider {
   private addType(n: SgNode, f: CsFile, ns: string, outer?: CsType): void {
     const name = n.field('name')?.text();
     if (!name) return;
-    const path = outer ? `${outer.path}.${name}` : name;
+    const tps = n.field('type_parameters') ?? n.namedChildren().find((c) => c.kind() === 'type_parameter_list');
+    const own = keyOf(name, tps?.namedChildren().length ?? 0);
+    const path = outer ? `${outer.path}.${own}` : own;
     const fqn = join2(ns, path);
     const key = `${f.project}\0${fqn}`;
     let t = this.types.get(key);
@@ -343,7 +373,7 @@ export class CSharpProvider implements SymbolProvider {
           (a.file.file < b.file.file ? -1 : a.file.file > b.file.file ? 1 : 0) ||
           lineOf(a.node) - lineOf(b.node),
       );
-      t.id = `${t.parts[0]!.file.file}#${t.path}`;
+      t.id = `${t.parts[0]!.file.file}#${t.fqn}`;
       for (const s of t.statics) this.names.add(s);
     }
     for (const t of this.types.values()) {
@@ -482,6 +512,8 @@ interface Ctx {
 
 interface Seg {
   name: string;
+  /** Metadata-style key (`Box`1` for `Box<int>`). */
+  key: string;
   node: SgNode;
 }
 
@@ -505,7 +537,7 @@ class CsWalker {
     const isStatic = u.children().some((c) => !c.isNamed() && c.text() === 'static');
     if (!alias && !isStatic) return;
     const target = u.namedChildren().find((c) => c.id() !== alias?.id());
-    const t = target && this.p.lookup(cleanName(target.text()), this.f.project);
+    const t = target && this.p.lookup(keyedName(target), this.f.project);
     if (t && target) this.out.add(t.id, target);
   }
 
@@ -778,9 +810,10 @@ class CsWalker {
       if (!x) return;
       if (x.kind() === 'generic_name') {
         const id = x.namedChildren().find((c) => c.kind() === 'identifier');
-        if (id) segs.push({ name: id.text(), node: id });
-        for (const c of x.namedChildren()) if (c.kind() === 'type_argument_list') typeArgs.push(c);
-      } else if (x.kind() === 'identifier') segs.push({ name: x.text(), node: x });
+        const ta = x.namedChildren().find((c) => c.kind() === 'type_argument_list');
+        if (id) segs.push({ name: id.text(), key: keyOf(id.text(), arityOf(ta)), node: id });
+        if (ta) typeArgs.push(ta);
+      } else if (x.kind() === 'identifier') segs.push({ name: x.text(), key: x.text(), node: x });
     };
     const flat = (x: SgNode | null) => {
       if (!x) return;
@@ -809,7 +842,7 @@ class CsWalker {
       if (v === 'typeparam' || (v && !typeCtx)) firstMember = 1;
       else {
         const { found, next } = this.resolveQualified(
-          segs.map((s) => s.name),
+          segs.map((s) => s.key),
           ctx,
           global,
         );

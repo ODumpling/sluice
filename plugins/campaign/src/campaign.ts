@@ -11,7 +11,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { defaultPrepare, detectToolchain, isDependencyManifest } from '@sluice-dev/lang';
+import { defaultPrepare, detectToolchain, inRoot, isDependencyManifest } from '@sluice-dev/lang';
 import { scanTree, validateRule, type RuleLanguage } from '@sluice-dev/policy';
 import { git, runInContainer, type RunInContainerOptions } from '@sluice-dev/sandbox';
 import { applyCodemod, type Codemod } from './codemod.js';
@@ -247,19 +247,21 @@ export function evidenceEnv(
   if (typeof setting === 'string') command = setting;
   else if (setting === true) {
     if (!toolchain) throw new Error(`prepare: true but no toolchain detected in repo ${name}`);
-    command = toolchain.prepareCommand;
-  } else if (setting === undefined) command = defaultPrepare(toolchain, join(ws, name));
+    command = inRoot(toolchain.root, toolchain.prepareCommand);
+  } else if (setting === undefined) {
+    // the default runs at the repo's detected project root (e.g. backend/go.mod)
+    const p = defaultPrepare(toolchain, join(ws, name, toolchain?.root ?? '.'));
+    command = p && inRoot(toolchain!.root, p);
+  }
   const env = toolchain && Object.keys(toolchain.env).length ? toolchain.env : undefined;
   return {
     image,
     options: {
       env,
-      prepare: command ? { command: `cd ${shq(name)} && ${command}`, manifest: isDependencyManifest, env } : undefined,
+      prepare: command ? { command: inRoot(name, command), manifest: isDependencyManifest, env } : undefined,
     },
   };
 }
-
-const shq = (s: string) => (/^[\w./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 async function apply(c: LoadedCampaign, step: StepDef, repo: string): Promise<string[]> {
   const dir = c.repoPath(repo);

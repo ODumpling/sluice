@@ -16,6 +16,8 @@ interface InitProfile {
   build: string;
   /** Service command (compiled languages build the mounted source at start). */
   command?: string;
+  /** Comment lines explaining how `source` and `command` pair for common layouts. */
+  layout?: string;
   unitTests: string;
   mounts: string;
 }
@@ -31,6 +33,16 @@ const INIT: Record<ToolchainId, InitProfile> = {
   go: {
     build: 'FROM golang:1.27-alpine; go mod download; warm the build cache (see examples/billing-demo-go)',
     command: `[sh, -c, 'go build -o /tmp/app . && exec /tmp/app']`,
+    layout: [
+      '      # `source` is the directory whose changes a run picks up; `command` must build from it.',
+      '      # go.mod and the downloaded modules stay in the image. Pick the pair for your layout:',
+      '      #   main.go at the module root, code in src/ (this default; examples/billing-demo-go):',
+      "      #     source: src   command: [sh, -c, 'go build -o /tmp/app . && exec /tmp/app']",
+      '      #   main package itself in src/:     source: src  command: ... go build -o /tmp/app ./src ...',
+      '      #   everything in the root package:  source: .    command: ... go build -o /tmp/app . ...',
+      '      #   cmd/server + internal/ or pkg/:  source: .    command: ... go build -o /tmp/app ./cmd/server ...',
+      '      # (use source: . whenever main imports local packages outside the mounted directory)',
+    ].join('\n'),
     unitTests: '[go, test, ./...]',
     mounts: '[src, test]',
   },
@@ -54,6 +66,7 @@ pluginConfig: {}
 `;
   const p = INIT[toolchain];
   const t = TOOLCHAINS[toolchain];
+  const layout = p.layout ? `\n${p.layout}` : '';
   const command = p.command
     ? `\n      command: ${p.command} # compiles the mounted source at start (base / PR / mutant builds)`
     : '';
@@ -77,7 +90,7 @@ sandbox:
     app:
       build: . # Dockerfile context — e.g. ${p.build}
       workdir: /app
-      source: src # bind-mounted read-only, so base / PR / mutant builds swap without an image rebuild${command}
+      source: src # bind-mounted read-only, so base / PR / mutant builds swap without an image rebuild${layout}${command}
       env: { PORT: '3000' }
       ports: [3000]
       determinism: ${toolchain} # frozen clock, seeded RNG, event capture

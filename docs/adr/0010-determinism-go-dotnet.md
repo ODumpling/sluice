@@ -53,10 +53,22 @@ without libc (static binaries), so LD_PRELOAD cannot reach it. Instead:
   - `net/http`: `init` starts the control server (every sandbox service is an
     HTTP server, so `net/http` is always linked) and installs the tap.
 - The container gets `GOFLAGS=-overlay=/sluice/go/overlay.json` (after the
-  service's/image's own flags), `GOTOOLCHAIN=local`, and a named volume for
-  `GOCACHE` (seeded from the image's cache) so only the first start rebuilds
-  the stdlib (~5 s on 2 CPUs). The command must compile at start (`go run`,
-  `go build && exec`), which `source:` mounts require anyway.
+  service's/image's own flags) and `GOTOOLCHAIN=local`. The command must
+  compile at start (`go run`, `go build && exec`), which `source:` mounts
+  require anyway.
+- Build cache integrity: the overlay invalidates the image's cached stdlib,
+  and a writable cache shared between containers would let code under test
+  (a PR, a mutant — it runs as root in the container that also compiles)
+  write entries a later base/head build trusts. Sluice therefore builds a
+  **warm image** once per (image, overlay, Go build env): `FROM` the service
+  image, overlay copied in, `go build std` plus the image's own module,
+  offline and compile-only (nothing under test executes). Services run from
+  it; their `GOCACHE` is the image layer plus a private copy-on-write layer
+  discarded on `reset()`. Measured on arm64 Docker Desktop: warm image build
+  6.8 s (once), sandbox up 0.9–1.7 s, `reset()` ~0.6 s. Rejected: one shared
+  named volume (poisonable); a per-sandbox copy of a warm volume (still shared
+  by base and mutants within a sandbox, and a copy per reset); a read-only
+  base + `GOCACHEPROG` layer (Go 1.24+ only, another program to ship).
 - Supported: Go 1.22 (first with `math/rand/v2`) through 1.27, verified by
   integration tests on `golang:1.22-alpine` and `golang:1.27-alpine`.
 
@@ -78,9 +90,16 @@ it is not interposable directly (checked with `nm` / tracing in
 - `libsluice-{glibc,musl}.so` (`assets/dotnet/sluice-preload.c`) intercepts
   `clock_gettime` (`REALTIME`, `REALTIME_COARSE`, `TAI` only), `gettimeofday`,
   `time`, `timespec_get`; `getrandom`, `getentropy`, `arc4random*`,
-  `syscall(SYS_getrandom)`, reads of fds opened on `/dev/urandom|random`
-  (`open*`/`openat*` tracking); `srand*` (seed derived from `SLUICE_SEED`);
-  and, on glibc, `dlsym` to hand out a seeded `RAND_bytes`. Randomness comes
+  `syscall(SYS_getrandom)`, `read`/`pread`/`readv`/`preadv` of fds opened on
+  `/dev/urandom|random` (tracked through `open*`/`openat*`, `dup*`,
+  `fcntl(F_DUPFD*)`, `close`, `close_range`, `syscall(SYS_close…)`; the
+  bitmap is only a hint — a read is seeded only if `fstat` shows char device
+  1:8/1:9, so an fd reused behind the shim's back passes through); `srand*`
+  (seed derived from `SLUICE_SEED`); and, on glibc, `dlsym` to hand out a
+  seeded `RAND_bytes`. Every other `dlsym` (and any `RTLD_NEXT`/`RTLD_DEFAULT`
+  lookup) is a tail call, so the real `dlsym` sees the original caller and
+  other interposers keep working. Negative clock values are floor-normalized
+  (`0 ≤ tv_nsec < 1e9`). Randomness comes
   from 128 lock-free splitmix64 streams keyed by (entry point, size), so a
   background consumer racing on another thread cannot shift the values of
   unrelated APIs (without this, `Guid`s varied across replays).
@@ -95,9 +114,23 @@ it is not interposable directly (checked with `nm` / tracing in
   the command's status.
 - The control server lives in init, not the app, because `dotnet run` and
   MSBuild are processes in the same container: a per-process server would
-  bind in whichever process starts first. SDK processes (`/sdk/` in argv, or
-  a `dotnet <verb>` muxer) keep the real clock so builds behave;
-  `SLUICE_SHIM_ALL=1` overrides.
+  bind in whichever process starts first. SDK processes (an argument under
+  `<root>/sdk/` for the running dotnet host's root or `$DOTNET_ROOT`,
+  symlinks resolved; or a `dotnet <verb>` muxer) keep the real clock so
+  builds behave; `SLUICE_SHIM_ALL=1` overrides.
+- `Random.Shared` is a `[ThreadStatic]` xoshiro per thread, seeded on first
+  use; startup code consumes draws on some pool workers, and which worker
+  serves a request varies, so its values varied in ~1 of 5 runs. The preload
+  sets `DOTNET_ThreadPool_ForceMinWorkerThreads/ForceMaxWorkerThreads=1` in
+  app processes (not SDK ones: MSBuild with one worker hangs), so all managed
+  request code runs on one thread: 12/12 resets gave identical
+  `Random.Shared`/`new Random()` values, and the Kestrel + Npgsql
+  billing-demo-dotnet e2e passes. Cost: sync-over-async in request code can
+  deadlock; `SLUICE_DOTNET_WORKERS=0` opts out (then `Random` is best
+  effort). Rejected: identical seeds for every 32-byte read (every
+  `new Random()` would produce the same sequence); a startup hook replacing
+  `Random.Shared` (`static readonly`, not settable after type init without IL
+  patching).
 - Built once per arch in `alpine:3.20` (init + musl lib) and
   `debian:bookworm-slim` (glibc lib: needs glibc ≥ 2.34 at runtime, i.e.
   every .NET 8+ glibc image except Debian 11), cached under the user cache
@@ -109,11 +142,11 @@ protocol, no randomness or events).
 
 ### Coverage
 
-| runtime | frozen                                                     | seeded                                                                                                       | not deterministic                                                                               |
-| ------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| node    | `Date`                                                     | `Math.random`, `crypto.randomUUID/randomBytes/randomFillSync/getRandomValues`                                | `performance.now` (real)                                                                        |
-| go      | `time.Now` and everything built on it                      | `math/rand(/v2)` top-level, `crypto/rand.Reader/Read/Text`, `google/uuid`                                    | map order, scheduling, `crypto/*` keygen (Go 1.26+ ignores the reader)                          |
-| dotnet  | `DateTime(Offset).UtcNow/Now`, `TimeProvider.System`, libc | `Guid.NewGuid/CreateVersion7`, `RandomNumberGenerator` (glibc), string hash seed; `Random` seeds best effort | `Random.Shared` across thread-pool threads, OpenSSL-internal DRBG (TLS/keys), musl `RAND_bytes` |
+| runtime | frozen                                                     | seeded                                                                                                                           | not deterministic                                                                            |
+| ------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| node    | `Date`                                                     | `Math.random`, `crypto.randomUUID/randomBytes/randomFillSync/getRandomValues`                                                    | `performance.now` (real)                                                                     |
+| go      | `time.Now` and everything built on it                      | `math/rand(/v2)` top-level, `crypto/rand.Reader/Read/Text`, `google/uuid`                                                        | map order, scheduling, `crypto/*` keygen (Go 1.26+ ignores the reader)                       |
+| dotnet  | `DateTime(Offset).UtcNow/Now`, `TimeProvider.System`, libc | `Guid.NewGuid/CreateVersion7`, `RandomNumberGenerator` (glibc), string hash seed, `Random.Shared`/`new Random()` (single worker) | OpenSSL-internal DRBG (TLS/keys), musl `RAND_bytes`, `Random` with `SLUICE_DOTNET_WORKERS=0` |
 
 Monotonic clocks stay real everywhere.
 
@@ -125,9 +158,14 @@ Monotonic clocks stay real everywhere.
 - Integration tests cover each mode (`core/sandbox/test/*-determinism.itest.ts`)
   against tiny fixture services: clock frozen and moved, same seed → same
   values across resets and a different seed → different, events present right
-  after the response, no egress.
-- First use costs a stdlib probe (Go, seconds) or a shim build (.NET, ~30 s,
-  needs network once); both are cached.
+  after the response, no egress, a private Go build cache per container, and
+  `Random.Shared` identical over 10 resets. `dotnet-preload.itest.ts` runs a
+  native C regression program (`fixtures/preload-test`) under the glibc and
+  musl builds: fd tracking through dup/fcntl/close_range/raw-close reuse,
+  pread/readv/preadv, negative clock normalization, `dlsym(RTLD_NEXT)`
+  semantics and SDK-process detection.
+- First use costs a stdlib probe plus a warm image build (Go, ~10 s) or a
+  shim build (.NET, ~30 s, needs network once); all are cached.
 - A new Go release that rewrites a patched declaration fails loudly at
   sandbox start; adding a patch rule is a one-line change in
   `determinism/go.ts` plus a fixture snippet in its unit test.

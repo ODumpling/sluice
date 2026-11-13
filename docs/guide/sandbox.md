@@ -80,10 +80,17 @@ app:
 Sluice sets `GOFLAGS=-overlay=/sluice/go/overlay.json` (appended to the
 service's or the image's own `GOFLAGS`) and `GOTOOLCHAIN=local` (the overlay
 patches this image's GOROOT). The sandbox has no network: download modules in
-the image (`ENV GOPROXY=off` makes a missing one fail fast). The build cache
-lives in a Docker volume `sluice-gocache-<image>` (seeded from the image's
-`GOCACHE`, label `sluice.cache=go`), so only the first container recompiles
-the stdlib; remove them with `docker volume rm $(docker volume ls -q --filter label=sluice.cache)`.
+the image (`ENV GOPROXY=off` makes a missing one fail fast).
+
+Containers run from a **warm image** `sluice-gowarm-<image>:<key>` that Sluice
+builds once (offline, compile-only: `FROM` the service image, the overlay
+copied to `/sluice/go`, `go build std` and the image's own module with the
+overlay). Its `GOCACHE` already holds the overlaid stdlib, so a container
+starts in about a second, and each container writes only to its own
+copy-on-write layer: code under test (a PR, a mutant) can never put entries
+into a cache that a later base/head run reads. No cache volume is mounted.
+Warm images carry `sluice.image=1` / `sluice.gowarm=1` labels
+(`docker rmi $(docker images -q --filter label=sluice.gowarm=1)`).
 
 What is covered:
 
@@ -112,9 +119,22 @@ prebuilt `sluice-init`, `libsluice-glibc.so`, `libsluice-musl.so`). The
 container entrypoint becomes `/sluice/dotnet/sluice-init`, which runs the
 image `ENTRYPOINT` + the service `command` (or image `CMD`) with stdout piped
 through it and `LD_PRELOAD` set; `docker exec` processes are not shimmed.
-SDK processes (`dotnet run/build`, MSBuild, the compiler server) run with
-real time; only the app process (`dotnet App.dll`, `dotnet exec …`, or the
-apphost) is shimmed (`SLUICE_SHIM_ALL=1` shims everything).
+SDK processes (any argument under `<dotnet root>/sdk/` — the root of the
+running `dotnet` host or `$DOTNET_ROOT` — e.g. MSBuild, csc, the compiler
+server; or a `dotnet <verb>` CLI like `dotnet run`) run with real time; only
+the app process (`dotnet App.dll`, `dotnet exec …`, or the apphost) is
+shimmed (`SLUICE_SHIM_ALL=1` shims everything).
+
+The app process gets **one thread-pool worker**
+(`DOTNET_ThreadPool_ForceMin/MaxWorkerThreads=1`, unless you set them):
+`Random.Shared` is thread-local, so with a single worker request code always
+runs on the same thread and its values are reproducible. Kestrel, `async`
+I/O and Npgsql work unchanged (the billing-demo-dotnet e2e runs this way);
+blocking on tasks in request code (`.Result`, `.Wait()` on work that needs
+another pool thread) deadlocks — set `SLUICE_DOTNET_WORKERS: '0'` in the
+service env to keep the runtime default (then `Random.Shared` is only
+reproducible when the same pool thread happens to serve each request), or a
+number to pick another fixed worker count.
 
 ```dockerfile
 FROM mcr.microsoft.com/dotnet/sdk:10.0
@@ -137,14 +157,14 @@ A published app works too (`command: [dotnet, /out/App.dll]`), but then the
 mounted source is not compiled — use `dotnet run` (or `sh -c 'dotnet build
 … && exec dotnet …'`) when Sluice swaps builds.
 
-| API                                                                                                          | behaviour                                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DateTime.UtcNow` / `Now`, `DateTimeOffset.UtcNow`, `TimeProvider.System.GetUtcNow()`, Kestrel `Date` header | frozen (`clock_gettime(CLOCK_REALTIME*)`, `gettimeofday`, `time`)                                                                                                                           |
-| `Stopwatch`, `Environment.TickCount64`, timers, `Task.Delay`, timeouts                                       | real (`CLOCK_MONOTONIC`)                                                                                                                                                                    |
-| `Guid.NewGuid`, `Guid.CreateVersion7`, `RandomNumberGenerator.*`, string hash seed                           | seeded (`/dev/urandom` reads, `getrandom`, `getentropy`, OpenSSL `RAND_bytes`)                                                                                                              |
-| `Random.Shared`, `new Random()`                                                                              | seeded, but **best effort**: `Random.Shared` is thread-local, so values depend on which thread-pool thread serves the request — use `Guid` / `RandomNumberGenerator`, or `new Random(seed)` |
-| TLS / key generation inside OpenSSL                                                                          | not deterministic (DRBG nonces)                                                                                                                                                             |
-| events                                                                                                       | anything written to fd 1 (`Console.WriteLine`, `Console.Out`): synchronous, `Console.Out` autoflushes                                                                                       |
+| API                                                                                                          | behaviour                                                                                             |
+| ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `DateTime.UtcNow` / `Now`, `DateTimeOffset.UtcNow`, `TimeProvider.System.GetUtcNow()`, Kestrel `Date` header | frozen (`clock_gettime(CLOCK_REALTIME*)`, `gettimeofday`, `time`)                                     |
+| `Stopwatch`, `Environment.TickCount64`, timers, `Task.Delay`, timeouts                                       | real (`CLOCK_MONOTONIC`)                                                                              |
+| `Guid.NewGuid`, `Guid.CreateVersion7`, `RandomNumberGenerator.*`, string hash seed                           | seeded (`/dev/urandom` reads incl. `pread`/`readv`, `getrandom`, `getentropy`, OpenSSL `RAND_bytes`)  |
+| `Random.Shared`, `new Random()`                                                                              | seeded; reproducible with the single thread-pool worker (default, see above)                          |
+| TLS / key generation inside OpenSSL                                                                          | not deterministic (DRBG nonces)                                                                       |
+| events                                                                                                       | anything written to fd 1 (`Console.WriteLine`, `Console.Out`): synchronous, `Console.Out` autoflushes |
 
 The `Microsoft.Extensions.Logging` console logger writes from a background
 thread: don't emit events through `ILogger`, use `Console.WriteLine`.

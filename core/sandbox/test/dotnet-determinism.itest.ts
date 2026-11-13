@@ -26,19 +26,15 @@ describe('dotnet determinism shim (mcr.microsoft.com/dotnet/sdk:10.0)', () => {
     await eventsScenario(sb);
   });
 
-  it('seeds Guid.NewGuid / CreateVersion7 and RandomNumberGenerator: same seed → same values, new seed → new values', async () => {
-    // Random.Shared / new Random() are seeded too but depend on which thread-pool
-    // thread serves the request (Random.Shared is thread-local): best effort, not asserted.
-    const pick = (r: Record<string, unknown>) => ({ rng: r.rng, rngInt: r.rngInt });
-    const sample = async () =>
-      [pick(await get(sb, '/rand')), await get(sb, '/uuid'), pick(await get(sb, '/rand'))] as Record<string, unknown>[];
+  it('seeds Guid, RandomNumberGenerator, Random.Shared and new Random(): same seed → same values, new seed → new values', async () => {
+    const sample = async () => [await get(sb, '/rand'), await get(sb, '/uuid'), await get(sb, '/rand')];
     await sb.reset();
     const a = await sample();
     await sb.reset();
     expect(await sample()).toEqual(a);
     await sb.reset({ seed: 2 });
     const b = await sample();
-    expect(b[0]!.rng).not.toEqual(a[0]!.rng);
+    for (const k of ['rng', 'shared', 'unseeded', 'fresh']) expect(b[0]![k]).not.toEqual(a[0]![k]);
     expect(b[1]!.uuid).not.toEqual(a[1]!.uuid);
     expect(b[1]!.v7).not.toEqual(a[1]!.v7);
     await sb.reset({ seed: 1 });
@@ -46,6 +42,16 @@ describe('dotnet determinism shim (mcr.microsoft.com/dotnet/sdk:10.0)', () => {
     expect(a[0]).not.toEqual(a[2]);
     expect(String(a[1]!.uuid)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(String(a[1]!.v7).replace(/-/g, '').slice(0, 12)).toBe(sb.clock.now().toString(16).padStart(12, '0'));
+  });
+
+  it('Random.Shared / new Random() are identical across 10 resets (single thread-pool worker)', async () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      await sb.reset();
+      const r = [await get(sb, '/rand'), await get(sb, '/uuid'), await get(sb, '/rand'), await get(sb, '/rand')];
+      seen.add(JSON.stringify(r));
+    }
+    expect(seen.size).toBe(1);
   });
 
   it('has zero real egress', async () => {

@@ -176,6 +176,7 @@ export function northStarSuite(lang: DemoLang, opts: NorthStarOptions = {}): voi
     it('3. …and proof the checks catch deliberately broken versions of the code', () => {
       const m = reports.bad.mutation;
       expect(m.total).toBeGreaterThan(0);
+      expect(m.invalid ?? 0).toBeLessThanOrEqual(1);
       expect(m.killed).toBeGreaterThan(0);
       expect(m.mutants.filter((x) => x.killed).every((x) => typeof x.killedBy === 'string')).toBe(true);
     });
@@ -192,6 +193,13 @@ export function northStarSuite(lang: DemoLang, opts: NorthStarOptions = {}): voi
       expect(r.scenarios.every((s) => s.passed)).toBe(true);
       expect(r.scenarios).toHaveLength(5);
       expect(r.mutation.total).toBeGreaterThanOrEqual(5);
+      // Go/C# mutants are generated to compile: at most one may fail to (invalid, unscored)
+      const invalid = r.mutation.mutants.filter((m) => m.status === 'invalid');
+      expect(
+        invalid.length,
+        invalid.map((m) => `${m.file}:${m.line} ${m.operator}\n${m.detail}`).join('\n'),
+      ).toBeLessThanOrEqual(1);
+      expect(r.mutation.invalid ?? 0).toBe(invalid.length);
       expect(r.mutation.score!, `survivors:\n${survivors.join('\n')}`).toBeGreaterThanOrEqual(0.8);
       expect(r.contractViolations).toEqual([]);
     });
