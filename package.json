@@ -29,6 +29,7 @@
     "@sluice-dev/github": "workspace:*",
     "@sluice-dev/github-api": "workspace:*",
     "@sluice-dev/mcp": "workspace:*",
+    "@sluice-dev/plugin-bench": "workspace:*",
     "@sluice-dev/plugin-gate": "workspace:*",
     "@sluice-dev/sandbox": "workspace:*",
     "@sluice-dev/web": "workspace:*",

@@ -447,6 +447,13 @@ export class Sandbox {
       name,
       '-w',
       svc.workdir,
+      // caps keep a runaway build (e.g. an infinite-loop mutant) from starving the Docker host
+      '--cpus',
+      '2',
+      '--memory',
+      '2g',
+      '--pids-limit',
+      '1024',
     ];
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(svc.env)) env[k] = this.interpolate(v);

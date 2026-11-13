@@ -35,6 +35,9 @@ importers:
       '@sluice-dev/mcp':
         specifier: workspace:*
         version: link:surfaces/mcp
+      '@sluice-dev/plugin-bench':
+        specifier: workspace:*
+        version: link:plugins/bench
       '@sluice-dev/plugin-gate':
         specifier: workspace:*
         version: link:plugins/gate
@@ -127,6 +130,18 @@ importers:
         specifier: ^8.23.1
         version: 8.23.1
 
+  plugins/bench:
+    dependencies:
+      '@sluice-dev/plugin-api':
+        specifier: workspace:*
+        version: link:../../core/plugin-api
+      '@sluice-dev/sandbox':
+        specifier: workspace:*
+        version: link:../../core/sandbox
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+
   plugins/gate:
     dependencies:
       '@sluice-dev/config':
@@ -178,6 +193,9 @@ importers:
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api
+      '@sluice-dev/plugin-bench':
+        specifier: workspace:*
+        version: link:../../plugins/bench
       '@sluice-dev/plugin-gate':
         specifier: workspace:*
         version: link:../../plugins/gate

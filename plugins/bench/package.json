@@ -1,0 +1,25 @@
+{
+  "name": "@sluice-dev/plugin-bench",
+  "version": "0.1.0",
+  "description": "Mine merged changes into eval tasks; compare agent configs on pass rate, cost and wall time.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}

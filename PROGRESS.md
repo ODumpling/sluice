@@ -95,3 +95,29 @@ ticket `CANCEL-1` with 5 scenarios and two agent PR overlays, `pnpm demo`, ADR-0
 Open issues: first local `pnpm demo` run hung once in the good-PR phase (no
 error visible; stderr was suppressed). Fixed visibility (errors always shown) and
 added timeouts to every sandbox/evidence fetch; not reproduced since.
+
+## M4 Bench — done
+
+Delivered: `@sluice-dev/plugin-bench` — `sluice bench mine` (SWE-bench-style
+fail-to-pass mining, validated in no-network, CPU/memory-capped containers with
+host-enforced deadlines; trees streamed via tar, no bind mounts) and
+`sluice bench run` (agent-neutral command agents, hidden-test evaluation, cost
+from agent report / Claude-Code JSON, JSON + Markdown reports with pass rate,
+cost, cost/solved, wall time, per-task matrix). Source data: unmodified
+history of `marcbachmann/cel-js` (MIT) vendored as `examples/bench/cel-js.bundle`.
+Calibration agents `oracle` and `first-file` (simulated cost). ADR-0005.
+
+| Exit criterion                                   | Proof                                                                                                                                                    |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| mine ≥20 tasks from a public repo's history      | `plugins/bench/test/bench.itest.ts` "mines >= 20 fail-to-pass tasks from cel-js history"                                                                 |
+| compare 2 agent configs                          | same file, "compares two agent configs…" (oracle 100%, first-file <100% with non-zero cost)                                                              |
+| reproducible report (pass rate, cost, wall time) | same file, "the report is reproducible" (`reproducibleView` identical across runs); `sluice bench run` writes `.sluice/bench/<name>/reports/*.{json,md}` |
+| harness units                                    | `plugins/bench/test/bench.test.ts`                                                                                                                       |
+
+Open issue (local only): on the development Mac under heavy load (Spotlight
+indexing temp dirs), child processes spawned from test workers — `docker`
+_and_ plain `git archive`/`tar` — occasionally stall ~15 minutes, then resume.
+Never observed in CI (Linux). Mitigations: integration files run sequentially,
+fetch/pg timeouts, container resource caps, host-enforced kill deadlines,
+bench test runs without bind mounts. Debug with `SLUICE_TRACE_DOCKER=1` /
+`SLUICE_TRACE_BENCH=1`.

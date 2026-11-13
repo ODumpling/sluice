@@ -1,0 +1,30 @@
+# sluice bench -c bench.yaml
+# Tasks are mined from marcbachmann/cel-js (MIT), vendored as a git bundle so
+# mining and evaluation are fully offline. See examples/bench/README.md.
+name: cel-js
+source:
+  bundle: cel-js.bundle # or: path: /path/to/clone
+  repo: marcbachmann/cel-js
+  ref: main
+mine:
+  limit: 20
+  maxCandidates: 30
+  source: [lib/]
+  tests: '^test/.*\.test\.js$'
+  testCommand: node --test --experimental-test-isolation=none test/**/*.test.js
+  image: node:22-alpine
+agents:
+  - name: oracle
+    command: node ${benchDir}/agents/oracle.mjs
+    oracle: true
+    timeoutSec: 120
+  - name: first-file
+    command: node ${benchDir}/agents/first-file.mjs
+    oracle: true
+    timeoutSec: 120
+  # Real agents (need their own credentials/network; run on the host in the task workspace):
+  # - name: claude-code
+  #   command: claude -p "$SLUICE_TASK_PROMPT" --permission-mode acceptEdits --output-format json
+  #   timeoutSec: 1800
+  # - name: codex
+  #   command: codex exec --full-auto "$SLUICE_TASK_PROMPT"
