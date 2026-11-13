@@ -52,17 +52,17 @@ work:
 
 ## `sandbox.services.<name>`
 
-| key               | meaning                                                                                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| `image` / `build` | exactly one: a prebuilt image, or a Docker build context (images are tagged by a content hash)                 |
-| `dockerfile`      | Dockerfile path within the context                                                                             |
-| `command`         | override the image command                                                                                     |
-| `env`             | environment; `${fakes.<name>.url}` resolves to the fake via the gateway, `${sandbox.id}` to the sandbox id     |
-| `ports`           | container ports the gateway may forward to the host                                                            |
-| `source`          | directory bind-mounted over `workdir/<source>` — lets Sluice run base, PR and mutant builds without rebuilding |
-| `dependsOn`       | start order                                                                                                    |
-| `determinism`     | `node`: inject the determinism shim (`NODE_OPTIONS=--require`)                                                 |
-| `ready`           | `{exec: [...]}`, `{http: {port, path}}` or `{tcp: port}`                                                       |
+| key               | meaning                                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `image` / `build` | exactly one: a prebuilt image, or a Docker build context (images are tagged by a content hash)                                           |
+| `dockerfile`      | Dockerfile path within the context                                                                                                       |
+| `command`         | override the image command                                                                                                               |
+| `env`             | environment; `${fakes.<name>.url}` resolves to the fake via the gateway, `${sandbox.id}` to the sandbox id                               |
+| `ports`           | container ports the gateway may forward to the host                                                                                      |
+| `source`          | directory bind-mounted over `workdir/<source>` — lets Sluice run base, PR and mutant builds without rebuilding                           |
+| `dependsOn`       | start order                                                                                                                              |
+| `determinism`     | `node` / `go` / `dotnet`: frozen clock, seeded randomness, event capture ([sandbox guide](/guide/sandbox#determinism)); `none` (default) |
+| `ready`           | `{exec: [...]}`, `{http: {port, path}}` or `{tcp: port}`                                                                                 |
 
 Service containers get resource caps (2 CPUs, 2 GiB, 1024 pids).
 
@@ -75,10 +75,12 @@ automatically.
 
 ## Environment variables
 
-| variable                                                                   | used by                                                                   |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `GITHUB_TOKEN`, `GITHUB_API_URL`, `GITHUB_REPOSITORY`                      | `gate run --github-check`, `rules from-pr`                                |
-| `SLUICE_APPROVER`                                                          | default approver identity for `gate approve`                              |
-| `SLUICE_UPSTREAM_GITHUB_TOKEN`/`_URL`, `SLUICE_UPSTREAM_STRIPE_KEY`/`_URL` | `policy serve` (real credentials stay in the broker)                      |
-| `SLUICE_FAKES_BIND`                                                        | host address fakes bind to (default 127.0.0.1 on macOS, 0.0.0.0 on Linux) |
-| `SLUICE_LOG=debug`, `SLUICE_TRACE_DOCKER=1`, `SLUICE_TRACE_BENCH=1`        | diagnostics                                                               |
+| variable                                                                   | used by                                                                             |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN`, `GITHUB_API_URL`, `GITHUB_REPOSITORY`                      | `gate run --github-check`, `rules from-pr`                                          |
+| `SLUICE_APPROVER`                                                          | default approver identity for `gate approve`                                        |
+| `SLUICE_UPSTREAM_GITHUB_TOKEN`/`_URL`, `SLUICE_UPSTREAM_STRIPE_KEY`/`_URL` | `policy serve` (real credentials stay in the broker)                                |
+| `SLUICE_FAKES_BIND`                                                        | host address fakes bind to (default 127.0.0.1 on macOS, 0.0.0.0 on Linux)           |
+| `SLUICE_CACHE_DIR`                                                         | cache for determinism shims (default `$XDG_CACHE_HOME/sluice` or `~/.cache/sluice`) |
+| `SLUICE_DOTNET_SHIM_DIR`                                                   | prebuilt `determinism: dotnet` shim (skips building it in Docker)                   |
+| `SLUICE_LOG=debug`, `SLUICE_TRACE_DOCKER=1`, `SLUICE_TRACE_BENCH=1`        | diagnostics                                                                         |

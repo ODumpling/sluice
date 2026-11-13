@@ -149,10 +149,15 @@ export interface Toolchain {
   image: string;
   /** Default test command (run from the repository root, no network). */
   testCommand: string;
-  /** Fetch dependencies (run once with network, before tests run offline). */
+  /**
+   * Fetch dependencies (run with network at image build time, from a tree that
+   * holds only the dependency manifests, before tests run offline).
+   */
   prepareCommand: string;
   /** Files that pin dependencies; a change to one means the change touches dependencies. */
   manifest: RegExp;
+  /** Environment for prepare and test runs (baked into prepared images). */
+  env: Record<string, string>;
 }
 
 export const TOOLCHAINS: Record<ToolchainId, Toolchain> = {
@@ -164,23 +169,37 @@ export const TOOLCHAINS: Record<ToolchainId, Toolchain> = {
     prepareCommand:
       'if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi',
     manifest: /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock)$/,
+    env: {},
   },
   go: {
     id: 'go',
     languages: ['go'],
     image: 'golang:1.27-alpine',
     testCommand: 'go test ./...',
-    prepareCommand: 'go mod download',
+    // every module in the tree (a repo may hold several, or one below the root);
+    // `go build std` warms the build cache so offline test runs skip compiling the standard library
+    prepareCommand:
+      'find . -name go.mod -not -path "*/vendor/*" | sort | while read -r m; do (cd "$(dirname "$m")" && go mod download && go build std) || exit 1; done',
     manifest: /(^|\/)(go\.mod|go\.sum|go\.work|go\.work\.sum)$/,
+    env: {},
   },
   dotnet: {
     id: 'dotnet',
     languages: ['csharp'],
     image: 'mcr.microsoft.com/dotnet/sdk:10.0',
     testCommand: 'dotnet test --nologo',
-    prepareCommand: 'dotnet restore',
+    // every project (no source needed): fills the NuGet global packages folder
+    // and obj/, so the implicit restore of `dotnet test` succeeds offline
+    prepareCommand:
+      'find . \\( -name "*.csproj" -o -name "*.fsproj" -o -name "*.vbproj" \\) | sort | while read -r p; do dotnet restore "$p" || exit 1; done',
     manifest:
       /(^|\/)([^/]+\.(csproj|fsproj|vbproj|sln|slnx)|packages\.lock\.json|Directory\.(Packages|Build)\.(props|targets)|global\.json|NuGet\.config|nuget\.config)$/,
+    env: {
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1',
+      DOTNET_NOLOGO: '1',
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
+      MSBUILDDISABLENODEREUSE: '1',
+    },
   },
 };
 
@@ -215,6 +234,49 @@ export function detectToolchain(dir: string): Toolchain | undefined {
     }
   }
   return undefined;
+}
+
+/** Dependency manifests of `toolchain` under `dir` (relative, sorted; skips build output / vendored dirs). */
+export function findManifests(dir: string, toolchain?: Toolchain): string[] {
+  const out: string[] = [];
+  const skip = new Set([...SKIP_DIRS, 'bin', 'obj', 'vendor', 'testdata']);
+  const walk = (d: string) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (skip.has(e.name)) continue;
+      const p = join(d, e.name);
+      const rel = relative(dir, p).split('\\').join('/');
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile() && (toolchain ? toolchain.manifest.test(rel) : isDependencyManifest(rel))) out.push(rel);
+    }
+  };
+  if (existsSync(dir)) walk(dir);
+  return out.sort();
+}
+
+/**
+ * The prepare (dependency fetch) command a tree needs before its tests can run
+ * offline, or undefined when it needs none: Go when there is a go.mod (modules
+ * are downloaded and the build cache is warmed), .NET when there is a project
+ * (test frameworks are packages). Node trees get none by default — opt in
+ * explicitly (`TOOLCHAINS.node.prepareCommand`).
+ */
+export function defaultPrepare(toolchain: Toolchain | undefined, dir: string): string | undefined {
+  if (!toolchain || toolchain.id === 'node') return undefined;
+  const manifests = findManifests(dir, toolchain);
+  const project = toolchain.id === 'go' ? /(^|\/)go\.mod$/ : /\.(csproj|fsproj|vbproj)$/;
+  return manifests.some((m) => project.test(m)) ? toolchain.prepareCommand : undefined;
+}
+
+/** Test files of a toolchain's languages (all languages when undefined). */
+export function isToolchainTestFile(toolchain: Toolchain | undefined, file: string): boolean {
+  const lang = languageOf(file);
+  return isTestFile(file) && (!toolchain || (!!lang && toolchain.languages.includes(lang)));
+}
+
+/** Non-test source files of a toolchain's languages. */
+export function isToolchainSourceFile(toolchain: Toolchain | undefined, file: string): boolean {
+  const lang = languageOf(file);
+  return !!lang && (!toolchain || toolchain.languages.includes(lang)) && !isTestFile(file);
 }
 
 /** Go module path declared in a go.mod (undefined when absent). */

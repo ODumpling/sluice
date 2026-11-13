@@ -1,0 +1,13 @@
+# Record:  sluice record scripts/subscribe-and-renew.yaml
+# Replay:  sluice replay .sluice/sessions/subscribe-and-renew.json -n 10
+name: subscribe-and-renew
+steps:
+  - http: { method: POST, path: /customers, body: { email: ada@example.com, name: Ada } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}', plan: pro_monthly } }
+    save: { sub: body.id }
+  - http: { method: GET, path: '/subscriptions/${sub}' }
+  - http: { method: GET, path: '/customers/${cust}/access' }
+  - advance: 35d
+  - http: { method: POST, path: /jobs/sync-subscriptions }
+  - http: { method: GET, path: '/subscriptions/${sub}' }

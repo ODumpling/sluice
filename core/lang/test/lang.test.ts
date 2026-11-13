@@ -53,8 +53,10 @@ describe('@sluice-dev/lang', () => {
       'App/obj/G.cs',
       'bin/cli.js',
       'node_modules/m/i.js',
-    ])
-      (mkdirSync(join(d, f, '..'), { recursive: true }), writeFileSync(join(d, f), ''));
+    ]) {
+      mkdirSync(join(d, f, '..'), { recursive: true });
+      writeFileSync(join(d, f), '');
+    }
     expect(listSourceFiles(d)).toEqual(['App/C.cs', 'bin/cli.js', 'main.go']);
     expect(listSourceFiles(d, ['go'])).toEqual(['main.go']);
   });
@@ -62,7 +64,10 @@ describe('@sluice-dev/lang', () => {
   it('detects toolchains and manifests', () => {
     const mk = (files: string[]) => {
       const d = mkdtempSync(join(tmpdir(), 'sluice-tc-'));
-      for (const f of files) (mkdirSync(join(d, f, '..'), { recursive: true }), writeFileSync(join(d, f), ''));
+      for (const f of files) {
+        mkdirSync(join(d, f, '..'), { recursive: true });
+        writeFileSync(join(d, f), '');
+      }
       return d;
     };
     expect(detectToolchain(mk(['go.mod']))?.id).toBe('go');

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- consumers build against the sibling checkout of the library -->
+    <ProjectReference Include="../../shared-money/Money/Money.csproj" />
+  </ItemGroup>
+</Project>

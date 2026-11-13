@@ -10,7 +10,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { git } from '@sluice-dev/sandbox';
 import type { BenchTask } from './mine.js';
-import { datasetHash } from './mine.js';
+import { datasetHash, taskRunOptions } from './mine.js';
 import { extractTree, initRepo, pool, runTestsInContainer, writeFiles } from './tree.js';
 
 export interface AgentConfig {
@@ -172,7 +172,7 @@ export async function runTask(repoDir: string, t: BenchTask, a: AgentConfig): Pr
     writeFiles(ws, t.tests);
     for (const [p, c] of Object.entries(t.tests)) if (c === null) rmSync(join(ws, p), { force: true });
     trace(`${a.name} ${t.id} eval`);
-    const ev = await runTestsInContainer(ws, t.testCommand, t.image);
+    const ev = await runTestsInContainer(ws, t.testCommand, t.image, 120, taskRunOptions(t));
     trace(`${a.name} ${t.id} done`);
     return {
       task: t.id,

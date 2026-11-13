@@ -1,0 +1,16 @@
+id: stripe-cancels-at-period-end
+title: Stripe is told to cancel at period end, never to cancel immediately
+steps:
+  - http: { method: POST, path: /customers, body: { email: cy@example.com } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}' } }
+    save: { sub: body.id }
+  - http: { method: POST, path: '/subscriptions/${sub}/cancel' }
+  - assert:
+      egress: { none: { fake: stripe, method: DELETE } }
+  - assert:
+      fake: stripe
+      path: subscriptions
+      matches: [{ status: active, cancel_at_period_end: true }]
+  - assert:
+      events: { some: { event: subscription.cancel_scheduled, subscription_id: '${sub}' } }

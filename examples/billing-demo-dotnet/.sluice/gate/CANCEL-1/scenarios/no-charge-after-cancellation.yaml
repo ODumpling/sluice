@@ -1,0 +1,18 @@
+id: no-charge-after-cancellation
+title: No further invoices are charged after a cancellation
+steps:
+  - http: { method: POST, path: /customers, body: { email: eve@example.com } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}' } }
+    save: { sub: body.id }
+  - http: { method: POST, path: '/subscriptions/${sub}/cancel' }
+  - advance: 65d
+  - http: { method: POST, path: /jobs/sync-subscriptions }
+  - assert:
+      fake: stripe
+      path: invoices
+      matches: { $len: 1 }
+  - assert:
+      sql: SELECT status FROM subscriptions WHERE id = $1
+      params: ['${sub}']
+      rows: [{ status: canceled }]

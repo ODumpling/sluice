@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, findConfigFile, loadConfig, parseConfig } from '@sluice-dev/config';
+import { ConfigError, DETERMINISM_MODES, findConfigFile, loadConfig, parseConfig } from '@sluice-dev/config';
 
 describe('config', () => {
   it('applies defaults', () => {
@@ -44,6 +44,16 @@ sandbox:
     expect(() => parseConfig(base.replace('{ build: .,', '{ build: ., image: x,'))).toThrow(
       /exactly one of image or build/,
     );
+  });
+  it('accepts every determinism mode and rejects unknown ones', () => {
+    for (const mode of ['node', 'go', 'dotnet', 'none'])
+      expect(
+        parseConfig(base.replace('{ build: .,', `{ build: ., determinism: ${mode},`)).sandbox?.services.app
+          ?.determinism,
+      ).toBe(mode);
+    expect(parseConfig(base).sandbox?.services.app?.determinism).toBe('none');
+    expect(() => parseConfig(base.replace('{ build: .,', '{ build: ., determinism: python,'))).toThrow(/determinism/);
+    expect(DETERMINISM_MODES).toEqual(['node', 'go', 'dotnet', 'none']);
   });
   it('the bundled billing-demo spec is valid', () => {
     const loaded = loadConfig(join(import.meta.dirname, '..', '..', '..', 'examples', 'billing-demo'));

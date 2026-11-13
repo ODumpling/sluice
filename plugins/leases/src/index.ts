@@ -27,7 +27,8 @@ export default definePlugin({
   name: '@sluice-dev/plugin-leases',
   version: '0.1.0',
   apiVersion: '^1.0.0',
-  description: 'Symbol-level leases via a TypeScript language-service index; interface-change broadcast',
+  description:
+    'Symbol-level leases via a multi-language symbol index (TypeScript language service; Go and C# via tree-sitter); interface-change broadcast',
   commands: [
     {
       path: ['lease', 'symbols'],

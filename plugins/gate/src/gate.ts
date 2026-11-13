@@ -7,16 +7,11 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { loadConfig } from '@sluice-dev/config';
 import { diffSessions, startEvidenceSandbox, type DiffEntry } from '@sluice-dev/evidence';
+import { isTestFile, languageOf } from '@sluice-dev/lang';
 import { checkoutRef, git, type Checkout, type Sandbox } from '@sluice-dev/sandbox';
-import {
-  MUTABLE_EXTENSIONS,
-  applyMutant,
-  changedLines,
-  generateMutants,
-  selectMutants,
-  type Mutant,
-} from './mutation.js';
+import { applyMutant, changedLines, generateMutants, selectMutants, type Mutant } from './mutation.js';
 import { runScenario, type Failure, type ScenarioRun } from './runner.js';
+import type { Scenario } from './scenario.js';
 import { GATE_DIR, GateStore, type ApprovalStatus } from './store.js';
 
 export interface GateConfig {
@@ -44,7 +39,15 @@ export interface ScenarioReport {
   durationMs: number;
 }
 
+/**
+ * killed: a scenario's outcome changed; survived: none did; invalid: the
+ * mutant build did not compile/start (excluded from the score).
+ */
+export type MutantStatus = 'killed' | 'survived' | 'invalid';
+
 export interface MutantReport extends Omit<Mutant, 'start' | 'end'> {
+  status: MutantStatus;
+  /** Same as `status === 'killed'` (kept for report consumers). */
   killed: boolean;
   killedBy?: string;
   detail?: string;
@@ -63,8 +66,12 @@ export interface GateReport {
   mutation: {
     enabled: boolean;
     threshold: number;
+    /** Mutants run, including invalid ones. */
     total: number;
     killed: number;
+    /** Mutants whose build did not compile/start; not in the score's denominator. */
+    invalid?: number;
+    /** killed / (total - invalid); null when no valid mutant ran. */
     score: number | null;
     mutants: MutantReport[];
   };
@@ -156,7 +163,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
       const ranges = await changedLines(top, baseCo.sha, headCo.sha, pathspecs);
       let all: Mutant[] = [];
       for (const [file, r] of Object.entries(ranges)) {
-        if (!MUTABLE_EXTENSIONS.some((e) => file.endsWith(e))) continue;
+        if (!languageOf(file) || isTestFile(file)) continue;
         all.push(...generateMutants(file, readFileSync(join(headCo.dir, file), 'utf8'), r));
       }
       all = selectMutants(all, mcfg.maxMutants);
@@ -175,29 +182,49 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
             operator: m.operator,
             original: m.original,
             replacement: m.replacement,
+            status: 'survived',
             killed: false,
           };
           for (const [i, s] of approved.entries()) {
-            const r = await runScenario(sb, s, { sourceRoot: tree, label: `mutant ${m.id}` });
-            if (r.passed !== baseline[i]) {
+            const r = await runMutantScenario(sb, s, tree, `mutant ${m.id}`);
+            if (r.kind === 'invalid') {
+              report.status = 'invalid';
+              report.detail = r.detail;
+              break;
+            }
+            if (r.kind === 'error' || r.run.passed !== baseline[i]) {
+              report.status = 'killed';
               report.killed = true;
               report.killedBy = s.id;
-              report.detail = r.passed ? 'scenario started passing' : (r.failures[0]?.message ?? 'failed');
+              report.detail =
+                r.kind === 'error'
+                  ? `scenario errored: ${r.detail}`
+                  : r.run.passed
+                    ? 'scenario started passing'
+                    : (r.run.failures[0]?.message ?? 'failed');
               break;
             }
           }
           log(
-            `  mutant ${m.file}:${m.line} ${m.operator} ${report.killed ? `killed by ${report.killedBy}` : 'SURVIVED'}`,
+            `  mutant ${m.file}:${m.line} ${m.operator} ${
+              report.status === 'killed'
+                ? `killed by ${report.killedBy}`
+                : report.status === 'invalid'
+                  ? `INVALID (did not build/start): ${gist(report.detail)}`
+                  : 'SURVIVED'
+            }`,
           );
           mutants.push(report);
         }
       }
     }
-    const killed = mutants.filter((m) => m.killed).length;
-    const score = mutants.length ? killed / mutants.length : null;
+    const killed = mutants.filter((m) => m.status === 'killed').length;
+    const invalid = mutants.filter((m) => m.status === 'invalid').length;
+    const valid = mutants.length - invalid;
+    const score = valid ? killed / valid : null;
     if (failed.length === 0 && reasons.length === 0 && score !== null && score < mcfg.threshold) {
       reasons.push(
-        `checks too weak: only ${killed}/${mutants.length} deliberately broken versions were caught (threshold ${Math.round(mcfg.threshold * 100)}%)`,
+        `checks too weak: only ${killed}/${valid} deliberately broken versions were caught (threshold ${Math.round(mcfg.threshold * 100)}%${invalid ? `; ${invalid} mutant${invalid === 1 ? '' : 's'} did not build/start and ${invalid === 1 ? 'is' : 'are'} excluded` : ''})`,
       );
     }
 
@@ -237,7 +264,15 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
       })),
       integrity: { gateFilesModified: touched },
       scenarios,
-      mutation: { enabled: mcfg.enabled, threshold: mcfg.threshold, total: mutants.length, killed, score, mutants },
+      mutation: {
+        enabled: mcfg.enabled,
+        threshold: mcfg.threshold,
+        total: mutants.length,
+        killed,
+        invalid,
+        score,
+        mutants,
+      },
       unitTests,
       contractViolations,
       durationMs: Date.now() - started,
@@ -246,5 +281,63 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
     await sb?.down();
     for (const t of trees) rmSync(t, { recursive: true, force: true });
     for (const c of checkouts.reverse()) await c.remove();
+  }
+}
+
+export type MutantRun =
+  { kind: 'ran'; run: ScenarioRun } | { kind: 'invalid'; detail: string } | { kind: 'error'; detail: string };
+
+const firstLine = (s: string | undefined) => (s ?? '').split('\n')[0]!.slice(0, 200);
+
+/** First and last line of startup output (`service app exited during startup: … ./x.go:3: undefined: y`). */
+function gist(s: string | undefined): string {
+  const lines = (s ?? '').split('\n').filter((l) => l.trim());
+  const last = lines.length > 1 ? lines.at(-1)!.trim().slice(0, 200) : '';
+  return last ? `${firstLine(lines[0])} … ${last}` : firstLine(lines[0]);
+}
+
+/** Startup output worth keeping in the report (the tail has the compiler error). */
+function startupDetail(e: unknown): string {
+  const lines = String((e as Error)?.message ?? e).split('\n');
+  const text = lines.length > 25 ? [lines[0]!, '…', ...lines.slice(-24)].join('\n') : lines.join('\n');
+  return text.length > 4000 ? text.slice(0, 4000) + '…' : text;
+}
+
+/**
+ * Run one scenario against a mutant tree, telling apart a mutant that does
+ * not build/start (the sandbox reset onto the tree throws: compile error, the
+ * service exits or never gets ready) from one that starts and then misbehaves.
+ * The former is `invalid`; a scenario that throws after startup (e.g. the
+ * mutant crashes the app mid-request) is a behaviour change, i.e. killed.
+ */
+export async function runMutantScenario(
+  sb: Sandbox,
+  scenario: Scenario,
+  tree: string,
+  label: string,
+): Promise<MutantRun> {
+  let startupError: unknown;
+  let failedStartup = false;
+  const guarded = new Proxy(sb, {
+    get(target, prop) {
+      if (prop === 'reset')
+        return async (o: Parameters<Sandbox['reset']>[0]) => {
+          try {
+            await target.reset(o);
+          } catch (e) {
+            failedStartup = true;
+            startupError = e;
+            throw e;
+          }
+        };
+      const v = Reflect.get(target, prop, target) as unknown;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+    },
+  });
+  try {
+    return { kind: 'ran', run: await runScenario(guarded, scenario, { sourceRoot: tree, label }) };
+  } catch (e) {
+    if (failedStartup) return { kind: 'invalid', detail: startupDetail(startupError) };
+    return { kind: 'error', detail: firstLine((e as Error)?.message ?? String(e)) };
   }
 }

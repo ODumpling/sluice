@@ -35,7 +35,7 @@ jobs:
   integration:
     name: integration (Docker sandboxes)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -46,7 +46,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Pre-pull sandbox images
-        run: docker pull -q node:22-alpine && docker pull -q postgres:16-alpine
+        # node/go/dotnet: the north-star demo apps (test/e2e/north-star*.itest.ts);
+        # alpine + debian: builders for the `determinism: dotnet` shim
+        run: >-
+          printf '%s\n' node:22-alpine postgres:16-alpine golang:1.27-alpine mcr.microsoft.com/dotnet/sdk:10.0
+          alpine:3.20 debian:bookworm-slim | xargs -P 6 -n 1 docker pull -q
       - run: pnpm test:integration
       - name: Clean up sandboxes
         if: always()

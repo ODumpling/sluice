@@ -1,0 +1,17 @@
+id: subscription-ends-at-period-end
+title: When the period ends the subscription is canceled and access stops
+steps:
+  - http: { method: POST, path: /customers, body: { email: dee@example.com } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}' } }
+    save: { sub: body.id }
+  - http: { method: POST, path: '/subscriptions/${sub}/cancel' }
+  - advance: 32d
+  - http: { method: POST, path: /jobs/sync-subscriptions }
+  - http: { method: GET, path: '/subscriptions/${sub}' }
+    expect:
+      status: 200
+      body: { status: canceled }
+  - http: { method: GET, path: '/customers/${cust}/access' }
+    expect:
+      body: { has_access: false }

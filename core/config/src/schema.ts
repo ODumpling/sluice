@@ -6,6 +6,10 @@ const ReadySchema = z.union([
   z.object({ tcp: z.number().int() }).strict(),
 ]);
 
+/** Runtimes the sandbox determinism shim supports (`none` disables it). */
+export const DETERMINISM_MODES = ['node', 'go', 'dotnet', 'none'] as const;
+export type DeterminismMode = (typeof DETERMINISM_MODES)[number];
+
 export const ServiceSchema = z
   .object({
     /** Prebuilt image, e.g. postgres:16-alpine. Exactly one of image/build. */
@@ -21,8 +25,14 @@ export const ServiceSchema = z
     source: z.string().optional(),
     workdir: z.string().default('/app'),
     dependsOn: z.array(z.string()).default([]),
-    /** Inject the deterministic runtime shim (frozen clock, seeded RNG). */
-    determinism: z.enum(['node', 'none']).default('none'),
+    /**
+     * Inject the deterministic runtime shim (frozen clock, seeded RNG, event
+     * capture, control server). `node`: NODE_OPTIONS=--require; `go`: a
+     * `go build -overlay` patching the image's stdlib (the command must compile
+     * at container start); `dotnet`: LD_PRELOAD shim under a Sluice PID 1.
+     * See docs/guide/sandbox.md.
+     */
+    determinism: z.enum(DETERMINISM_MODES).default('none'),
     ready: ReadySchema.optional(),
   })
   .strict()

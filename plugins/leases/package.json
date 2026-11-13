@@ -1,7 +1,7 @@
 {
   "name": "@sluice-dev/plugin-leases",
   "version": "0.1.0",
-  "description": "Symbol-level leases via a TypeScript language-service index; interface-change broadcast.",
+  "description": "Symbol-level leases for TypeScript/JavaScript (language service), Go and C# (tree-sitter); interface-change broadcast.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

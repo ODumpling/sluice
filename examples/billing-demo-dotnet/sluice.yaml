@@ -1,0 +1,45 @@
+# Sluice environment spec for billing-demo-dotnet (.NET + Postgres + Stripe).
+version: 1
+name: billing-demo-dotnet
+sandbox:
+  services:
+    db:
+      image: postgres:16-alpine
+      env:
+        POSTGRES_USER: sluice
+        POSTGRES_PASSWORD: sluice
+        POSTGRES_DB: billing
+      ports: [5432]
+      ready:
+        exec: [pg_isready, -U, sluice, -d, billing, -h, 127.0.0.1]
+    app:
+      build: .
+      workdir: /app
+      source: src
+      # docker/start.sh compiles ./src (mounted read-only) into /app/artifacts with csc, then runs it
+      command: [sh, docker/start.sh]
+      env:
+        PORT: '3000'
+        DATABASE_URL: postgres://sluice:sluice@db:5432/billing
+        STRIPE_API_BASE: ${fakes.stripe.url}
+        STRIPE_SECRET_KEY: sk_test_sluice_billing_demo
+      ports: [3000]
+      dependsOn: [db]
+      determinism: dotnet
+      ready:
+        http: { port: 3000, path: /health }
+  fakes: [stripe]
+  ingress: { service: app, port: 3000 }
+  database:
+    service: db
+    port: 5432
+    user: sluice
+    password: sluice
+    name: billing
+pluginConfig:
+  gate:
+    mutation: { maxMutants: 10, threshold: 0.8 }
+    unitTests:
+      service: app
+      command: [dotnet, test, BillingDemo.Tests.csproj, --no-restore, --nologo, -v, q]
+      mounts: [src, test]

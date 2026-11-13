@@ -1,0 +1,44 @@
+# Expand/contract migration across three .NET solutions: replace the double-based
+# Money.FormatDollars with integer-cents Money.FormatCents. Consumers reference the
+# sibling library checkout (`<ProjectReference Include="../../shared-money/...">`).
+# The evidence image (dotnet/sdk) and the dependency prepare step (`dotnet restore`
+# of every project, network at image build time; tests run offline) come from the
+# detected toolchain.
+# Run: sluice campaign run campaign.yaml   (status: sluice campaign status campaign.yaml)
+id: money-to-cents-dotnet
+title: Migrate every .NET service from FormatDollars (double) to FormatCents (integer cents)
+repos:
+  - { name: shared-money, path: repos/shared-money }
+  - { name: checkout, path: repos/checkout }
+  - { name: invoices, path: repos/invoices }
+steps:
+  - id: expand
+    title: Add FormatCents next to the deprecated API
+    repos: [shared-money]
+    apply:
+      copy: steps/expand
+    evidence:
+      - tests: dotnet test --nologo
+        scope: all # every repo must still pass against the new library
+
+  - id: migrate
+    title: Switch call sites to FormatCents (codemod)
+    repos: [checkout, invoices]
+    apply:
+      codemod:
+        language: csharp
+        rules:
+          - { pattern: 'Money.FormatDollars($A)', rewrite: 'Money.FormatCents(Money.ToCents($A))' }
+    evidence:
+      - tests: dotnet test --nologo
+      - rule: { language: csharp, pattern: 'Money.FormatDollars($$$)', expect: none }
+
+  - id: contract
+    title: Remove the deprecated API
+    repos: [shared-money]
+    destructive: true # only after every consumer migrated with evidence
+    apply:
+      copy: steps/contract
+    evidence:
+      - tests: dotnet test --nologo
+        scope: all

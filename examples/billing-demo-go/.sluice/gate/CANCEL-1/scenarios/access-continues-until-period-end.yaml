@@ -1,0 +1,13 @@
+id: access-continues-until-period-end
+title: After cancelling, the customer keeps access until the paid period ends
+steps:
+  - http: { method: POST, path: /customers, body: { email: bob@example.com } }
+    save: { cust: body.id }
+  - http: { method: POST, path: /subscriptions, body: { customer_id: '${cust}' } }
+    save: { sub: body.id, period_end: body.current_period_end }
+  - http: { method: POST, path: '/subscriptions/${sub}/cancel' }
+  - advance: 20d
+  - http: { method: GET, path: '/customers/${cust}/access' }
+    expect:
+      status: 200
+      body: { has_access: true, plan: pro_monthly, access_until: '${period_end}' }
