@@ -11,6 +11,15 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.14.0)
+      '@sluice-dev/config':
+        specifier: workspace:*
+        version: link:core/config
+      '@sluice-dev/evidence':
+        specifier: workspace:*
+        version: link:core/evidence
+      '@sluice-dev/sandbox':
+        specifier: workspace:*
+        version: link:core/sandbox
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -41,6 +50,28 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  core/evidence:
+    dependencies:
+      '@sluice-dev/config':
+        specifier: workspace:*
+        version: link:../config
+      '@sluice-dev/fakes':
+        specifier: workspace:*
+        version: link:../fakes
+      '@sluice-dev/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
 
   core/fakes:
     dependencies:
@@ -81,6 +112,9 @@ importers:
       '@sluice-dev/config':
         specifier: workspace:*
         version: link:../../core/config
+      '@sluice-dev/evidence':
+        specifier: workspace:*
+        version: link:../../core/evidence
       '@sluice-dev/plugin-api':
         specifier: workspace:*
         version: link:../../core/plugin-api

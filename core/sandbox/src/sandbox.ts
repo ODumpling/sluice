@@ -251,6 +251,21 @@ export class Sandbox {
     return Object.keys(JSON.parse(r.stdout) as Record<string, unknown>).sort();
   }
 
+  /** Domain events captured by the determinism shim of a service (JSON stdout lines with an "event" key). */
+  async events(service: string, since = 0): Promise<{ total: number; events: unknown[] }> {
+    const port = this.hostPort(service, CONTROL_PORT);
+    const res = await fetch(`http://127.0.0.1:${port}/events?since=${since}`);
+    if (!res.ok) throw new Error(`events from ${service}: HTTP ${res.status}`);
+    return (await res.json()) as { total: number; events: unknown[] };
+  }
+
+  /** Services running the Node determinism shim. */
+  get deterministicServices(): string[] {
+    return Object.entries(this.spec.services)
+      .filter(([, s]) => s.determinism === 'node')
+      .map(([n]) => n);
+  }
+
   get internalNetwork(): string {
     return this.internalNet;
   }

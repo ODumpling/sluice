@@ -1,7 +1,7 @@
 // Sluice determinism shim for Node apps. Loaded with NODE_OPTIONS=--require.
 // Freezes the clock (Date), seeds randomness (Math.random, crypto.randomUUID,
 // crypto.randomBytes, crypto.getRandomValues) and exposes a control server so
-// Sluice can move time: POST /clock {"nowMs":...}, GET /state.
+// Sluice can move time: POST /clock {"nowMs":...}, GET /state, GET /events?since=N.
 'use strict';
 const http = require('node:http');
 const crypto = require('node:crypto');
@@ -83,18 +83,51 @@ if (web) {
   patch(web, 'randomUUID', randomUUID);
 }
 
+// Domain events: JSON lines with an "event" key written to stdout are captured
+// in order (synchronously, before the app responds) for evidence collection.
+const events = [];
+const origWrite = process.stdout.write.bind(process.stdout);
+let partial = '';
+process.stdout.write = function (chunk, ...rest) {
+  try {
+    partial += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+    let i;
+    while ((i = partial.indexOf('\n')) >= 0) {
+      const line = partial.slice(0, i);
+      partial = partial.slice(i + 1);
+      if (line.startsWith('{')) {
+        try {
+          const v = JSON.parse(line);
+          if (v && typeof v === 'object' && typeof v.event === 'string' && events.length < 100000) events.push(v);
+        } catch {
+          // not JSON: ordinary log output
+        }
+      }
+    }
+  } catch {
+    // never break the app's logging
+  }
+  return origWrite(chunk, ...rest);
+};
+
 const port = Number(process.env.SLUICE_CONTROL_PORT || 0);
 if (port) {
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
-      if (req.method === 'POST' && req.url === '/clock') {
+      const url = new URL(req.url, 'http://control');
+      if (req.method === 'POST' && url.pathname === '/clock') {
         const v = JSON.parse(body || '{}');
         if (typeof v.nowMs === 'number') nowMs = v.nowMs;
       }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ nowMs, seed }));
+      if (url.pathname === '/events') {
+        const since = Number(url.searchParams.get('since') || 0);
+        res.end(JSON.stringify({ total: events.length, events: events.slice(since) }));
+        return;
+      }
+      res.end(JSON.stringify({ nowMs, seed, events: events.length }));
     });
   });
   server.on('error', () => {}); // e.g. a second node process in the same container (docker exec)

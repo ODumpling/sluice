@@ -1,0 +1,30 @@
+{
+  "name": "@sluice-dev/evidence",
+  "version": "0.1.0",
+  "description": "Record HTTP, SQL writes and events from sandboxed runs; deterministic replay; noise-filtered behavior diffs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/config": "workspace:*",
+    "@sluice-dev/fakes": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "pg": "^8.23.1",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}
