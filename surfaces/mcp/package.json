@@ -1,7 +1,7 @@
 {
   "name": "@sluice-dev/mcp",
   "version": "0.1.0",
-  "description": "Sluice MCP server: exposes plugin tools (gate, inbox, leases, …) to any MCP-capable agent.",
+  "description": "Sluice MCP server: exposes plugin tools (gate, inbox, leases, \u2026) to any MCP-capable agent.",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -18,6 +18,18 @@
     "dist",
     "bin"
   ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ODumpling/sluice.git",
+    "directory": "surfaces/mcp"
+  },
+  "homepage": "https://github.com/ODumpling/sluice#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
   },

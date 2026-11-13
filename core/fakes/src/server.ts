@@ -14,12 +14,18 @@ export interface FakeRequest {
   params: Record<string, string>;
   /** Contract route template (e.g. /v1/subscriptions/{subscription_exposed_id}). */
   route?: string;
+  /** Unparsed request body and the original (still-encoded) URL, for byte-oriented APIs like S3. */
+  rawBody: Buffer;
+  rawUrl: string;
 }
 
 export interface FakeResponse {
   status: number;
+  /** JSON body (also what the journal records). */
   body: Json;
   headers?: Record<string, string>;
+  /** Raw body to send instead of JSON (XML, object bytes); `body` then summarizes it for the journal. */
+  raw?: Buffer | string;
 }
 
 export interface Fake {
@@ -32,6 +38,8 @@ export interface Fake {
   state(): Json;
   /** Shape of an error response for this API. */
   error(status: number, message: string, extra?: Record<string, Json>): FakeResponse;
+  /** The fake consumes raw bodies (do not parse as JSON/form). */
+  readonly rawBodies?: boolean;
   /** Optional hook: run before contract validation (e.g. auth). Return a response to short-circuit. */
   preflight?(req: FakeRequest): FakeResponse | undefined;
 }
@@ -92,11 +100,16 @@ export class FakeServer {
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
-        this.dispatch(req, Buffer.concat(chunks).toString('utf8')).then(
+        this.dispatch(req, Buffer.concat(chunks)).then(
           (r) => {
             if (r.status === 204 || r.status === 304) {
               res.writeHead(r.status, r.headers ?? {});
               res.end();
+              return;
+            }
+            if (r.raw !== undefined) {
+              res.writeHead(r.status, r.headers ?? {});
+              res.end(req.method === 'HEAD' ? undefined : r.raw);
               return;
             }
             res.writeHead(r.status, { 'content-type': 'application/json', ...r.headers });
@@ -145,7 +158,7 @@ export class FakeServer {
     return this.handle(method, pathWithQuery, body, lower);
   }
 
-  private dispatch(req: http.IncomingMessage, raw: string): Promise<FakeResponse> {
+  private dispatch(req: http.IncomingMessage, raw: Buffer): Promise<FakeResponse> {
     const headers: Record<string, string | undefined> = {};
     for (const [k, v] of Object.entries(req.headers)) headers[k] = Array.isArray(v) ? v.join(',') : v;
     return this.handle(req.method ?? 'GET', req.url ?? '/', raw, headers);
@@ -154,21 +167,34 @@ export class FakeServer {
   private async handle(
     method: string,
     pathWithQuery: string,
-    raw: string,
+    rawInput: string | Buffer,
     headers: Record<string, string | undefined>,
   ): Promise<FakeResponse> {
+    const rawBody = Buffer.isBuffer(rawInput) ? rawInput : Buffer.from(rawInput, 'utf8');
+    const raw = rawBody.toString('utf8');
     const url = new URL(pathWithQuery, 'http://fake');
     const path = url.pathname;
     if (path.startsWith('/_sluice/')) return this.admin(method, path, raw);
 
     let query: Record<string, unknown> = decodeForm(url.searchParams);
-    let body: Record<string, unknown>;
-    try {
-      body = parseBody(raw, headers['content-type']);
-    } catch {
-      return this.fake.error(400, 'Invalid request body');
+    let body: Record<string, unknown> = {};
+    if (!this.fake.rawBodies) {
+      try {
+        body = parseBody(raw, headers['content-type']);
+      } catch {
+        return this.fake.error(400, 'Invalid request body');
+      }
     }
-    const req: FakeRequest = { method: method.toUpperCase(), path, query, body, headers, params: {} };
+    const req: FakeRequest = {
+      method: method.toUpperCase(),
+      path,
+      query,
+      body,
+      headers,
+      params: {},
+      rawBody,
+      rawUrl: pathWithQuery,
+    };
     const violations: ContractViolation[] = [];
     const record = (r: FakeResponse) => {
       this.journal.push({

@@ -1,0 +1,19 @@
+Sluice
+Copyright 2026 The Sluice Authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository includes third-party material:
+
+- core/fakes/vendor/stripe/openapi.json, fixtures.json
+  Subset of Stripe's OpenAPI specification and fixtures
+  (https://github.com/stripe/openapi), MIT License, Copyright (c) Stripe, Inc.
+
+- core/fakes/vendor/github/openapi.json
+  Subset of GitHub's REST API OpenAPI description
+  (https://github.com/github/rest-api-description), MIT License,
+  Copyright (c) GitHub, Inc.
+
+- examples/bench/cel-js.bundle
+  Unmodified git history of cel-js (https://github.com/marcbachmann/cel-js),
+  MIT License, Copyright (c) Marc Bachmann.

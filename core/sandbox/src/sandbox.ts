@@ -21,7 +21,7 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { SandboxSpec, ServiceSpec } from '@sluice-dev/config';
-import { FakeServer, GitHubFake, SimClock, StripeFake, type Fake } from '@sluice-dev/fakes';
+import { FakeServer, GitHubFake, S3Fake, SimClock, StripeFake, type Fake } from '@sluice-dev/fakes';
 import { docker, dockerStream } from './docker.js';
 
 export const GATEWAY_IMAGE = 'node:22-alpine';
@@ -34,6 +34,7 @@ export type FakeFactory = (clock: SimClock, seed: number) => Fake;
 export const DEFAULT_FAKES: Record<string, FakeFactory> = {
   stripe: (clock, seed) => new StripeFake({ clock, seed }),
   github: (clock) => new GitHubFake({ clock }),
+  s3: (clock) => new S3Fake({ clock }),
 };
 
 export interface SandboxOptions {

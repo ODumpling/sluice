@@ -15,6 +15,18 @@
     "dist",
     "vendor"
   ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ODumpling/sluice.git",
+    "directory": "core/fakes"
+  },
+  "homepage": "https://github.com/ODumpling/sluice#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
   },
@@ -22,6 +34,7 @@
     "ajv": "^8.20.0"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1168.0",
     "stripe": "^23.1.0"
   }
 }

@@ -173,3 +173,32 @@ Container runner moved to `@sluice-dev/sandbox` (`runInContainer`). ADR-0008.
 | e2e test drives a 3-repo migration to completion | `plugins/campaign/test/campaign.itest.ts` "drives the 3-repo migration to completion…" (expand → codemod migrate ×2 → destructive contract; every step's evidence recorded and passing; contract re-tests all 3 repos)                                                               |
 | injected failure blocks the destructive step     | same file, "an injected failure rolls the failing step back and blocks the destructive step" (codemod misses the 2-arg form → invoices evidence fails → rolled back to its original sha; contract `blocked`; shared-money keeps formatDollars; fixed campaign resumes to completion) |
 | codemod engine                                   | `plugins/campaign/test/codemod.test.ts`                                                                                                                                                                                                                                              |
+
+## M8 Polish — done (npm publish pending credentials)
+
+Delivered: S3 fake (SigV4-verified, AWS SDK v3 contract tests) completing the
+v1 fake set; VitePress docs site (`docs/`: quickstart, concepts, config,
+guides for every feature, generated CLI/MCP reference, plugin API, ADRs);
+README with the one-command demo; LICENSE (Apache-2.0), NOTICE (third-party
+attributions), CONTRIBUTING, SECURITY, CHANGELOG; example READMEs; publishable
+package metadata for all 19 `@sluice-dev/*` packages; CI jobs for docs,
+packaging and the timed clean-clone demo; tag-triggered release workflow.
+ADR-0009.
+
+| Exit criterion                                           | Proof                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| docs site                                                | CI job `docs` (`pnpm docs:build`, dead links fail; generated reference must be committed); `surfaces/cli/test/reference.test.ts`                                                                                                                                      |
+| quickstart < 10 min                                      | CI job `demo` runs `pnpm demo` from a fresh checkout with no prior install and fails if > 600 s (`docs/quickstart.md`)                                                                                                                                                |
+| examples                                                 | `examples/{billing-demo,bench,coord-demo,campaign}` each with README and tests that run them                                                                                                                                                                          |
+| CONTRIBUTING, license (Apache-2.0 core), security policy | `CONTRIBUTING.md`, `LICENSE`, `NOTICE`, `SECURITY.md`; `test/unit/architecture.test.ts` checks every package is Apache-2.0                                                                                                                                            |
+| release v0.1.0 to npm as `@sluice-dev/cli`               | tag `v0.1.0`; `.github/workflows/release.yml`; CI job `packaging` (`pnpm pack:smoke`: tarballs install with npm and the `sluice` binary works). **Publishing needs an `NPM_TOKEN` secret with rights to the `@sluice-dev` scope** — not available in this environment |
+
+# Final acceptance
+
+| Criterion                                                              | Command / proof                                                                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every milestone's exit criteria pass in CI                             | GitHub Actions `CI` on `main`: jobs `check` (lint, typecheck, build, `pnpm test`), `integration` (`pnpm test:integration`), `docs`, `packaging`, `demo` |
+| end-to-end demo from a clean clone with one command                    | `pnpm demo` (CI job `demo`); automated assertion of the same story in `test/e2e/north-star.itest.ts`                                                    |
+| tagged v0.1.0, green CI                                                | `git tag v0.1.0`; CI run for the tagged commit                                                                                                          |
+| README with 1-command demo                                             | `README.md`                                                                                                                                             |
+| PROGRESS.md shows every exit criterion with the command that proves it | this file                                                                                                                                               |

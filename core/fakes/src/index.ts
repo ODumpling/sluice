@@ -13,3 +13,4 @@ export {
   type Permission,
   type Permissions,
 } from './github/index.js';
+export { S3Fake, type S3FakeOptions } from './s3/index.js';

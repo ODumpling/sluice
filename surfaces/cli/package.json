@@ -18,6 +18,18 @@
     "dist",
     "bin"
   ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ODumpling/sluice.git",
+    "directory": "surfaces/cli"
+  },
+  "homepage": "https://github.com/ODumpling/sluice#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
   },

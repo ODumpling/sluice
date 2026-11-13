@@ -17,7 +17,11 @@
     "test:integration": "vitest run --project integration --no-file-parallelism",
     "test:all": "vitest run",
     "sluice": "node surfaces/cli/bin/sluice.js",
-    "demo": "node scripts/demo.mjs"
+    "demo": "node scripts/demo.mjs",
+    "docs:gen": "node scripts/gen-docs.mjs",
+    "docs:build": "pnpm docs:gen && vitepress build docs",
+    "docs:dev": "vitepress dev docs",
+    "pack:smoke": "node scripts/pack-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -45,6 +49,7 @@
     "prettier": "^3.10.1",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
+    "vitepress": "^1.6.4",
     "vitest": "^5.1.0"
   }
 }
