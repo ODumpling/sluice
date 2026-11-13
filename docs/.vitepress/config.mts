@@ -19,6 +19,7 @@ export default defineConfig({
           { text: 'Quickstart (<10 min)', link: '/quickstart' },
           { text: 'Concepts', link: '/concepts' },
           { text: 'Languages (TS, Go, .NET)', link: '/languages' },
+          { text: 'Field trials', link: '/field-trials' },
         ],
       },
       {

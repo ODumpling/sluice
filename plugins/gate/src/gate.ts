@@ -15,7 +15,13 @@ import type { Scenario } from './scenario.js';
 import { GATE_DIR, GateStore, type ApprovalStatus } from './store.js';
 
 export interface GateConfig {
-  mutation?: { enabled?: boolean; maxMutants?: number; threshold?: number };
+  mutation?: {
+    enabled?: boolean;
+    maxMutants?: number;
+    threshold?: number;
+    /** Accept changed source lines that yield no mutants (default: the gate fails as unproven). */
+    allowNoMutants?: boolean;
+  };
   unitTests?: { service: string; command: string[]; mounts: string[] };
 }
 
@@ -160,6 +166,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
     // ---------------------------------------------------------------- mutation proof
     const mcfg = { enabled: true, maxMutants: 10, threshold: 0.8, ...opts.mutation };
     const mutants: MutantReport[] = [];
+    let changedSourceLines = 0;
     if (mcfg.enabled && approved.length) {
       const sourceDirs = Object.values(config.sandbox.services)
         .filter((svc) => svc.source)
@@ -169,6 +176,7 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
       let all: Mutant[] = [];
       for (const [file, r] of Object.entries(ranges)) {
         if (!languageOf(file) || isTestFile(file)) continue;
+        changedSourceLines += r.reduce((n, [a, b]) => n + b - a + 1, 0);
         all.push(...generateMutants(file, readFileSync(join(headCo.dir, file), 'utf8'), r));
       }
       all = selectMutants(all, mcfg.maxMutants);
@@ -236,6 +244,8 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
     }
     const outcome = mutationOutcome(mutants, mcfg.threshold, {
       othersFailing: failed.length > 0 || reasons.length > 0,
+      changedSourceLines,
+      allowNoMutants: mcfg.allowNoMutants,
     });
     const { killed, invalid, errored, score } = outcome;
     reasons.push(...outcome.reasons);
@@ -301,13 +311,14 @@ export async function runGate(opts: GateRunOptions): Promise<GateReport> {
  * Score and verdict reasons of a mutation proof. Invalid (non-compiling) and
  * errored (sandbox failure) mutants are left out of the score. Fail-closed:
  * any errored mutant makes the proof inconclusive (an untested mutant must
- * not look caught), as does every mutant being invalid. "Too weak" is only
+ * not look caught), as does every mutant being invalid, and changed source
+ * lines that yield no mutant at all (unless allowed). "Too weak" is only
  * reported when nothing else already fails the gate.
  */
 export function mutationOutcome(
   mutants: Pick<MutantReport, 'status'>[],
   threshold: number,
-  opts: { othersFailing?: boolean } = {},
+  opts: { othersFailing?: boolean; changedSourceLines?: number; allowNoMutants?: boolean } = {},
 ): { killed: number; invalid: number; errored: number; score: number | null; reasons: string[] } {
   const count = (st: MutantStatus) => mutants.filter((m) => m.status === st).length;
   const killed = count('killed');
@@ -317,7 +328,11 @@ export function mutationOutcome(
   const score = valid ? killed / valid : null;
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const reasons: string[] = [];
-  if (errored) reasons.push(`mutation proof inconclusive: ${plural(errored, 'mutant run')} hit sandbox errors`);
+  if (!mutants.length && opts.changedSourceLines && !opts.allowNoMutants)
+    reasons.push(
+      `mutation proof unproven: ${plural(opts.changedSourceLines, 'changed source line')} but no mutants could be generated (set pluginConfig.gate.mutation.allowNoMutants: true to accept)`,
+    );
+  else if (errored) reasons.push(`mutation proof inconclusive: ${plural(errored, 'mutant run')} hit sandbox errors`);
   else if (mutants.length && !valid)
     reasons.push(`mutation proof inconclusive: all ${plural(mutants.length, 'mutant')} failed to compile`);
   else if (!opts.othersFailing && score !== null && score < threshold)

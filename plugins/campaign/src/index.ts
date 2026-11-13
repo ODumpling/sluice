@@ -7,7 +7,7 @@ export * from './codemod.js';
 
 export default definePlugin({
   name: '@sluice-dev/plugin-campaign',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description: 'Multi-repo migrations with evidence-gated steps and rollback',
   commands: [

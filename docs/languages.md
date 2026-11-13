@@ -26,9 +26,10 @@ Default toolchain images: `node:22-alpine`, `golang:1.27-alpine`,
 - **Go determinism** needs the service to compile at container start (a
   prebuilt binary isn't shimmed) and to link `net/http`. Map iteration order
   and `crypto/*` key generation stay nondeterministic.
-- **.NET determinism**: wall clock, `Guid`, `RandomNumberGenerator` are
-  deterministic; `Random.Shared` / `new Random()` are seeded but best effort
-  (thread-local) unless the service opts in with `SLUICE_DOTNET_WORKERS: '1'`
+- **.NET determinism**: wall clock is frozen; `Guid`, `RandomNumberGenerator`,
+  `Random.Shared` / `new Random()` are seeded, but values drawn concurrently on
+  several thread-pool threads are best effort unless the service opts in with
+  `SLUICE_DOTNET_WORKERS: '1'`
   (one thread-pool worker; apps that block on tasks can deadlock), see the
   [sandbox guide](/guide/sandbox#dotnet). Emit events with `Console.WriteLine` (the `ILogger` console
   provider is asynchronous).

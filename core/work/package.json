@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/work",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Persisted task/dependency state machine for multi-agent work (SQLite default, Postgres optional).",
   "license": "Apache-2.0",
   "type": "module",

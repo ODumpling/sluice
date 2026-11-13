@@ -4,7 +4,7 @@
 sluice up                        # boots services; prints SLUICE_* URLs; Ctrl-C to stop
 sluice up --exec './smoke.sh'    # run a command against it, tear down, pass exit code
 sluice up --source ../other-checkout
-sluice down                      # remove leftovers
+sluice down                      # remove this project's leftovers (--all: every project's)
 ```
 
 ## Topology
@@ -23,7 +23,10 @@ alike:
 
 - **frozen wall clock** at `sandbox.clock`, moved only by `advance` / `clock`
   steps (`Sandbox.advance` / `setClock`); monotonic clocks, timers and
-  timeouts keep real time;
+  timeouts keep real time. Only shimmed app processes see it: the database
+  keeps real time, so `now()` / `CURRENT_TIMESTAMP` column defaults differ
+  every run (add them to `evidence.ignore`) and SQL date logic does not follow
+  `advance`;
 - **seeded randomness** from `sandbox.seed` (`reset({seed})` re-seeds): the
   same seed gives the same ids/tokens every run, a different seed different
   ones;
@@ -136,7 +139,10 @@ shimmed (`SLUICE_SHIM_ALL=1` shims everything).
 
 `Random.Shared` is thread-local, so by default its values (and `new
 Random()` seeds) depend on which thread-pool thread serves a request: seeded,
-but best effort. To make them reproducible, opt in with
+but best effort. The same goes for `Guid` / `RandomNumberGenerator` when
+several pool threads draw randomness at once (e.g. a JWT `jti` per request
+under load): each value is seeded, but which thread gets which can vary. To
+make all of them reproducible, opt in with
 `SLUICE_DOTNET_WORKERS: '1'` in the service `env`: managed app processes
 (never shells or SDK processes, which would hang) then get
 `DOTNET_ThreadPool_ForceMin/MaxWorkerThreads=1` unless they set those
@@ -144,7 +150,8 @@ themselves, so request code always runs on one thread. Kestrel, `async` I/O
 and Npgsql work with it, but request code that blocks on tasks (`.Result`,
 `.Wait()` on work needing another pool thread) deadlocks; a readiness timeout
 then names the cap. Without the opt-in, prefer `Guid` /
-`RandomNumberGenerator`, or inject a `new Random(seed)` you own.
+`RandomNumberGenerator` (reproducible while requests don't overlap), or inject
+a `new Random(seed)` you own.
 
 ```dockerfile
 FROM mcr.microsoft.com/dotnet/sdk:10.0
@@ -167,14 +174,14 @@ A published app works too (`command: [dotnet, /out/App.dll]`), but then the
 mounted source is not compiled — use `dotnet run` (or `sh -c 'dotnet build
 … && exec dotnet …'`) when Sluice swaps builds.
 
-| API                                                                                                          | behaviour                                                                                             |
-| ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `DateTime.UtcNow` / `Now`, `DateTimeOffset.UtcNow`, `TimeProvider.System.GetUtcNow()`, Kestrel `Date` header | frozen (`clock_gettime(CLOCK_REALTIME*)`, `gettimeofday`, `time`)                                     |
-| `Stopwatch`, `Environment.TickCount64`, timers, `Task.Delay`, timeouts                                       | real (`CLOCK_MONOTONIC`)                                                                              |
-| `Guid.NewGuid`, `Guid.CreateVersion7`, `RandomNumberGenerator.*`, string hash seed                           | seeded (`/dev/urandom` reads incl. `pread`/`readv`, `getrandom`, `getentropy`, OpenSSL `RAND_bytes`)  |
-| `Random.Shared`, `new Random()`                                                                              | seeded; best effort by default, reproducible with `SLUICE_DOTNET_WORKERS: '1'` (see above)            |
-| TLS / key generation inside OpenSSL                                                                          | not deterministic (DRBG nonces)                                                                       |
-| events                                                                                                       | anything written to fd 1 (`Console.WriteLine`, `Console.Out`): synchronous, `Console.Out` autoflushes |
+| API                                                                                                          | behaviour                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `DateTime.UtcNow` / `Now`, `DateTimeOffset.UtcNow`, `TimeProvider.System.GetUtcNow()`, Kestrel `Date` header | frozen (`clock_gettime(CLOCK_REALTIME*)`, `gettimeofday`, `time`)                                                                 |
+| `Stopwatch`, `Environment.TickCount64`, timers, `Task.Delay`, timeouts                                       | real (`CLOCK_MONOTONIC`)                                                                                                          |
+| `Guid.NewGuid`, `Guid.CreateVersion7`, `RandomNumberGenerator.*`, string hash seed                           | seeded (`/dev/urandom` reads incl. `pread`/`readv`, `getrandom`, `getentropy`, OpenSSL `RAND_bytes`); concurrent draws: see above |
+| `Random.Shared`, `new Random()`                                                                              | seeded; best effort by default, reproducible with `SLUICE_DOTNET_WORKERS: '1'` (see above)                                        |
+| TLS / key generation inside OpenSSL                                                                          | not deterministic (DRBG nonces)                                                                                                   |
+| events                                                                                                       | anything written to fd 1 (`Console.WriteLine`, `Console.Out`): synchronous, `Console.Out` autoflushes                             |
 
 The `Microsoft.Extensions.Logging` console logger writes from a background
 thread: don't emit events through `ILogger`, use `Console.WriteLine`.

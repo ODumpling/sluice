@@ -213,6 +213,17 @@ billing-demo, coord-demo and campaign; `pnpm demo -- --lang go|dotnet`;
 | Go/.NET bench mining + campaigns (offline deps) | `plugins/bench/test/toolchains.itest.ts`, `plugins/campaign/test/campaign.itest.ts`                                                              |
 | `sluice init` per toolchain                     | `surfaces/cli/test/cli.test.ts`                                                                                                                  |
 
+## Field trials — 2026-11-13
+
+Three third-party services (Node/Prisma, Go/gRPC-gateway, .NET 10/EF Core),
+public docs only, published CLI: the gate failed every bad branch for the
+right reason and passed every good branch (after fixes). Results, fixes and
+open findings: [docs/field-trials.md](docs/field-trials.md). Fixes shipped in
+0.2.0 with tests: `core/evidence/test/session.test.ts` (header
+interpolation), `surfaces/cli/test/up.itest.ts` ("sluice down" scoping),
+`core/sandbox/test/ready-tcp.itest.ts`, `plugins/gate/test/mutation-gate.test.ts`
+(unproven changes, survivors listed).
+
 # Final acceptance
 
 | Criterion                                                              | Command / proof                                                                                                                                         |

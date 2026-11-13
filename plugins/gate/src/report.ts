@@ -63,6 +63,9 @@ export function renderText(r: GateReport): string {
     lines.push(
       `  mutation proof: ${r.mutation.killed}/${validMutants(r.mutation)} deliberately broken versions caught${invalidNote(r.mutation)}`,
     );
+    for (const m of r.mutation.mutants)
+      if (mutantStatus(m) === 'survived')
+        lines.push(`    SURVIVED ${m.file}:${m.line} ${m.operator} \`${m.original}\` → \`${m.replacement}\``);
   }
   for (const reason of r.reasons) lines.push(`  ✘ ${reason}`);
   return lines.join('\n') + '\n';

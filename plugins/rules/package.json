@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/plugin-rules",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn review comments into structural rules, proven to catch the bad commit and stay clean on main.",
   "license": "Apache-2.0",
   "type": "module",

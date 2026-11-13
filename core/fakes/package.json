@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/fakes",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Stateful, contract-validated fakes (Stripe, GitHub, S3) generated from OpenAPI + recorded traffic, with drift detection.",
   "license": "Apache-2.0",
   "type": "module",

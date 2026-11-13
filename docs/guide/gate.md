@@ -64,7 +64,10 @@ The gate:
    literals, negations, removed calls, return values) and reruns the scenarios
    — a mutant is _caught_ if any scenario's outcome changes (section 4);
 5. fails if a scenario fails, a scenario is unapproved/stale, or — when all
-   pass — fewer than `threshold` of the valid mutants are caught;
+   pass — fewer than `threshold` of the valid mutants are caught. Changed
+   source lines that yield no mutant at all fail as _unproven_ (set
+   `mutation.allowNoMutants: true` to accept them); surviving mutants are
+   listed in the output;
 6. writes `.sluice/reports/gate-<ticket>-<sha>.{html,json}` and optionally a
    GitHub check run.
 

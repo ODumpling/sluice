@@ -96,7 +96,7 @@ export async function gateRunAndPublish(
 
 export default definePlugin({
   name: '@sluice-dev/plugin-gate',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description: 'Spec -> scenarios -> human approval -> black-box checks -> mutation proof -> GitHub check',
   commands: [

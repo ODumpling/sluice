@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/github-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Minimal GitHub REST client for Sluice: check runs, PRs, contents, App JWT + installation tokens, webhook signatures.",
   "license": "Apache-2.0",
   "type": "module",

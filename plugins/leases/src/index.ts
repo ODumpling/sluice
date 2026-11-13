@@ -25,7 +25,7 @@ async function withLeases<T>(ctx: PluginContext, fn: (m: LeaseManager) => Promis
 
 export default definePlugin({
   name: '@sluice-dev/plugin-leases',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description:
     'Symbol-level leases via a multi-language symbol index (TypeScript language service; Go and C# via tree-sitter); interface-change broadcast',
