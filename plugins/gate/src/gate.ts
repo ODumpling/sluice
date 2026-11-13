@@ -350,8 +350,9 @@ const COMPILE_ERROR: Partial<Record<Language, RegExp>> = {
  * module download): a sandbox problem, not the mutant's.
  */
 const TOOLCHAIN_ERROR: Partial<Record<Language, RegExp>> = {
-  // module downloads also surface as `main.go:2:8: mod@v: Get "https://…": dial tcp …` (import position first)
-  go: /no required module provides package|missing go\.sum entry|module lookup disabled|dial tcp|: Get "https?:\/\/|^go: .*: reading /m,
+  // module downloads also surface as `main.go:2:8: mod@v: Get "https://…": dial tcp …` (import position first);
+  // only in module-fetch context: an app that dies dialing its own DB/fake at startup is a kill
+  go: /no required module provides package|missing go\.sum entry|module lookup disabled|@v[^:\s]*: Get "https?:\/\/|\/@v\/|^go: .*: reading /m,
   csharp: /: error (NU|NETSDK|MSB)\d+: /,
 };
 

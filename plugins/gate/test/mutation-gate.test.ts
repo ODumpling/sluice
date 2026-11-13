@@ -106,6 +106,13 @@ describe('runMutantScenario', () => {
     expect((await runMutantScenario(failingReset(goDownload), scenario, '/t', 'm', { language: 'go' })).kind).toBe(
       'error',
     );
+    // ...but an app dying while dialing its own dependency at startup is the mutant's doing
+    const appDial = exited(
+      '2030/01/15 12:00:00 Get "http://sluice-gw:20001/v1/customers": dial tcp: connection refused',
+    );
+    expect((await runMutantScenario(failingReset(appDial), scenario, '/t', 'm', { language: 'go' })).kind).toBe(
+      'broken',
+    );
     // MSBuild task/Exec failures aren't the mutant's fault either
     const msb = exited('/app/BillingDemo.csproj(12,5): error MSB3073: The command "npm run build" exited with code 1.');
     expect((await runMutantScenario(failingReset(msb), scenario, '/t', 'm', { language: 'csharp' })).kind).toBe(
