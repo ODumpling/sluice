@@ -34,3 +34,7 @@ sandbox:
     user: sluice
     password: sluice
     name: billing
+pluginConfig:
+  gate:
+    mutation: { maxMutants: 10, threshold: 0.8 }
+    unitTests: { service: app, command: [npm, test, --silent], mounts: [src, test] }

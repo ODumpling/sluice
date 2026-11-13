@@ -22,14 +22,18 @@ export function docker(
   args: string[],
   opts: { allowFail?: boolean; input?: string; timeoutMs?: number } = {},
 ): Promise<DockerResult> {
+  const started = Date.now();
+  const trace = process.env.SLUICE_TRACE_DOCKER;
   return new Promise((resolve, reject) => {
     const child = execFile(
       'docker',
       args,
-      { maxBuffer: 64 * 1024 * 1024, timeout: opts.timeoutMs ?? 600_000 },
+      { maxBuffer: 64 * 1024 * 1024, timeout: opts.timeoutMs ?? 300_000 },
       (err, stdout, stderr) => {
         const raw = err ? (err as unknown as { code?: unknown }).code : 0;
         const code = typeof raw === 'number' ? raw : err ? 1 : 0;
+        if (trace)
+          process.stderr.write(`[docker ${Date.now() - started}ms] ${args.slice(0, 4).join(' ')} -> ${code}\n`);
         if (err && !opts.allowFail) reject(new DockerError(args, String(stderr || err.message), code));
         else resolve({ stdout: String(stdout), stderr: String(stderr), code });
       },

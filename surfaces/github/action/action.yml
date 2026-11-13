@@ -1,0 +1,50 @@
+name: Sluice Gate
+description: Nothing merges until the checks open the gate — run approved acceptance scenarios against this PR and post a check.
+branding: { icon: shield, color: red }
+inputs:
+  ticket:
+    description: 'Ticket id whose approved scenarios gate this PR (default: first [TICKET-ID] or Ticket: ID in the PR title/body)'
+    required: false
+  working-directory:
+    description: Directory containing sluice.yaml
+    default: .
+  version:
+    description: '@sluice-dev/cli version'
+    default: 0.1.0
+  github-token:
+    description: Token with checks:write
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with: { node-version: 22 }
+    - name: Resolve ticket
+      id: ticket
+      shell: bash
+      env:
+        INPUT_TICKET: ${{ inputs.ticket }}
+        PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
+      run: |
+        t="$INPUT_TICKET"
+        if [ -z "$t" ]; then t=$(printf '%s' "$PR_TEXT" | grep -oE '(\[[A-Z][A-Z0-9]+-[0-9]+\]|Ticket: *[A-Za-z0-9._-]+)' | head -1 | sed -E 's/^\[|\]$//g; s/^Ticket: *//'); fi
+        if [ -z "$t" ]; then echo "::error::no ticket id (set the ticket input or mention [TICKET-1] in the PR)"; exit 1; fi
+        echo "id=$t" >> "$GITHUB_OUTPUT"
+    - name: Sluice Gate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        git fetch --no-tags --depth=200 origin "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+        npx -y "@sluice-dev/cli@${{ inputs.version }}" gate run \
+          --ticket "${{ steps.ticket.outputs.id }}" \
+          --base "${{ github.event.pull_request.base.sha }}" \
+          --head "${{ github.event.pull_request.head.sha }}" \
+          --github-check --repo "${{ github.repository }}" --report-dir sluice-report
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sluice-gate-report
+        path: ${{ inputs.working-directory }}/sluice-report

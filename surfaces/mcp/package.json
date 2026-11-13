@@ -1,0 +1,29 @@
+{
+  "name": "@sluice-dev/mcp",
+  "version": "0.1.0",
+  "description": "Sluice MCP server: exposes plugin tools (gate, inbox, leases, …) to any MCP-capable agent.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "sluice-mcp": "./bin/sluice-mcp.js"
+  },
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@sluice-dev/cli": "workspace:*",
+    "@sluice-dev/plugin-api": "workspace:*"
+  }
+}

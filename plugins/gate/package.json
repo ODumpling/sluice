@@ -1,0 +1,34 @@
+{
+  "name": "@sluice-dev/plugin-gate",
+  "version": "0.1.0",
+  "description": "Sluice Gate: spec -> scenarios -> human approval -> black-box checks -> mutation proof -> GitHub check.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/config": "workspace:*",
+    "@sluice-dev/evidence": "workspace:*",
+    "@sluice-dev/fakes": "workspace:*",
+    "@sluice-dev/github-api": "workspace:*",
+    "@sluice-dev/plugin-api": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "pg": "^8.23.1",
+    "typescript": "~6.0.3",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

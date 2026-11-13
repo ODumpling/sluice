@@ -1,0 +1,15 @@
+# GitHub App manifest for "Sluice Gate" (https://docs.github.com/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)
+name: Sluice Gate
+url: https://github.com/ODumpling/sluice
+description: Nothing merges until the checks open the gate. Runs approved acceptance scenarios, a behavior diff and a mutation proof on every PR.
+hook_attributes:
+  url: https://example.invalid/webhook # replace with your deployment URL
+redirect_url: https://example.invalid/setup
+public: false
+default_events:
+  - pull_request
+default_permissions:
+  checks: write
+  contents: read
+  pull_requests: read
+  metadata: read

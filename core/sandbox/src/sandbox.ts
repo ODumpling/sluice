@@ -21,7 +21,7 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { SandboxSpec, ServiceSpec } from '@sluice-dev/config';
-import { FakeServer, SimClock, StripeFake, type Fake } from '@sluice-dev/fakes';
+import { FakeServer, GitHubFake, SimClock, StripeFake, type Fake } from '@sluice-dev/fakes';
 import { docker, dockerStream } from './docker.js';
 
 export const GATEWAY_IMAGE = 'node:22-alpine';
@@ -33,6 +33,7 @@ export type FakeFactory = (clock: SimClock, seed: number) => Fake;
 /** Built-in fakes by name. Plugins/hosts can pass more via SandboxOptions.fakeFactories. */
 export const DEFAULT_FAKES: Record<string, FakeFactory> = {
   stripe: (clock, seed) => new StripeFake({ clock, seed }),
+  github: (clock) => new GitHubFake({ clock }),
 };
 
 export interface SandboxOptions {
@@ -245,6 +246,25 @@ export class Sandbox {
     return docker(['exec', this.container(service), ...cmd], { allowFail: true });
   }
 
+  /**
+   * Run a one-off command in a service's image with no network at all (e.g. a
+   * PR's unit tests). Host directories are mounted read-only.
+   */
+  async runOneOff(
+    service: string,
+    command: string[],
+    mounts: { host: string; container: string }[] = [],
+    timeoutMs = 300_000,
+  ): Promise<{ code: number; output: string }> {
+    const svc = this.spec.services[service];
+    if (!svc) throw new Error(`no service ${service}`);
+    const args = ['run', '--rm', ...this.labels(), '--network', 'none', '-w', svc.workdir];
+    for (const m of mounts) args.push('-v', `${m.host}:${m.container}:ro`);
+    args.push(this.images.get(service)!, ...command);
+    const r = await docker(args, { allowFail: true, timeoutMs });
+    return { code: r.code, output: r.stdout + r.stderr };
+  }
+
   /** Docker networks a service container is attached to. */
   async networks(service: string): Promise<string[]> {
     const r = await docker(['inspect', '-f', '{{json .NetworkSettings.Networks}}', this.container(service)]);
@@ -254,7 +274,7 @@ export class Sandbox {
   /** Domain events captured by the determinism shim of a service (JSON stdout lines with an "event" key). */
   async events(service: string, since = 0): Promise<{ total: number; events: unknown[] }> {
     const port = this.hostPort(service, CONTROL_PORT);
-    const res = await fetch(`http://127.0.0.1:${port}/events?since=${since}`);
+    const res = await fetch(`http://127.0.0.1:${port}/events?since=${since}`, { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) throw new Error(`events from ${service}: HTTP ${res.status}`);
     return (await res.json()) as { total: number; events: unknown[] };
   }
@@ -469,7 +489,7 @@ export class Sandbox {
         `${name} (http ${ready.http.path})`,
         async () => {
           await running();
-          const res = await fetch(`http://127.0.0.1:${port}${ready.http.path}`);
+          const res = await fetch(`http://127.0.0.1:${port}${ready.http.path}`, { signal: AbortSignal.timeout(5_000) });
           await res.arrayBuffer();
           return res.ok;
         },
@@ -483,7 +503,7 @@ export class Sandbox {
       const port = this.hostPort(name, CONTROL_PORT);
       await waitFor(
         `${name} determinism control`,
-        async () => (await fetch(`http://127.0.0.1:${port}/state`)).ok,
+        async () => (await fetch(`http://127.0.0.1:${port}/state`, { signal: AbortSignal.timeout(5_000) })).ok,
         timeout,
       );
     }
@@ -497,6 +517,7 @@ export class Sandbox {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ nowMs: this.clock.now() }),
+        signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) throw new Error(`clock push to ${name} failed: ${res.status}`);
       await res.arrayBuffer();
@@ -511,7 +532,11 @@ export class Sandbox {
   }
 
   private async withClient<T>(db: string, fn: (c: pg.Client) => Promise<T>): Promise<T> {
-    const c = new pg.Client({ connectionString: this.adminUrl(db) });
+    const c = new pg.Client({
+      connectionString: this.adminUrl(db),
+      connectionTimeoutMillis: 10_000,
+      query_timeout: 60_000,
+    });
     await c.connect();
     try {
       return await fn(c);

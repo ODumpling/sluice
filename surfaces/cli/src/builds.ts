@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { checkoutRef, git } from '@sluice-dev/sandbox';
 
@@ -21,7 +22,7 @@ export async function resolveBuild(root: string, opts: { source?: unknown; ref?:
     const co = await checkoutRef(root, opts.ref);
     return {
       label: `${opts.ref}@${co.sha.slice(0, 8)}`,
-      sourceRoot: resolve(co.dir, relative(top, root)),
+      sourceRoot: resolve(co.dir, relative(top, realpathSync(root))),
       cleanup: () => co.remove(),
     };
   }

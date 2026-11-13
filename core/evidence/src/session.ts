@@ -27,7 +27,7 @@ export interface EgressCall {
 export interface StepEvidence {
   index: number;
   name: string;
-  kind: 'http' | 'advance' | 'clock';
+  kind: 'http' | 'advance' | 'clock' | 'check';
   request?: { method: string; path: string; body: Json };
   response?: { status: number; body: Json };
   egress: EgressCall[];
@@ -61,6 +61,19 @@ export interface RunOptions {
   reset?: boolean;
   /** Initial variables available to the script. */
   vars?: Record<string, Json>;
+  /** Called after each step's evidence is collected (assertions, early exit by throwing). */
+  afterStep?: (ctx: AfterStepContext) => Promise<void> | void;
+}
+
+export interface AfterStepContext {
+  index: number;
+  step: Script['steps'][number];
+  evidence: StepEvidence;
+  /** Evidence of all steps so far, including this one. */
+  steps: StepEvidence[];
+  vars: Record<string, Json>;
+  sandbox: Sandbox;
+  db: pg.Client | undefined;
 }
 
 async function readBody(res: Response): Promise<Json> {
@@ -76,7 +89,9 @@ async function readBody(res: Response): Promise<Json> {
 export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = {}): Promise<Session> {
   if (opts.reset !== false) await sb.reset({ sourceRoot: opts.sourceRoot, seed: opts.seed });
   const startMs = sb.clock.now();
-  const db = sb.spec.database ? new pg.Client({ connectionString: sb.databaseUrl }) : undefined;
+  const db = sb.spec.database
+    ? new pg.Client({ connectionString: sb.databaseUrl, connectionTimeoutMillis: 10_000, query_timeout: 60_000 })
+    : undefined;
   await db?.connect();
   try {
     let cursor = db ? await auditCursor(db) : 0;
@@ -96,6 +111,7 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
           method,
           headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...step.http.headers },
           body: body !== undefined ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(60_000),
         });
         ev.request = { method, path, body: body ?? null };
         ev.response = { status: res.status, body: await readBody(res) };
@@ -103,6 +119,8 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
       } else if ('advance' in step) {
         ev.kind = 'advance';
         await sb.advance(parseDuration(step.advance));
+      } else if ('check' in step) {
+        ev.kind = 'check';
       } else {
         ev.kind = 'clock';
         await sb.setClock(Date.parse(step.clock));
@@ -131,6 +149,7 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
         ev.events.push(...(r.events as Json[]));
       }
       steps.push(ev);
+      if (opts.afterStep) await opts.afterStep({ index, step, evidence: ev, steps, vars, sandbox: sb, db });
     }
 
     const fakes: Record<string, Json> = {};

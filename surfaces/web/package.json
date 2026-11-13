@@ -1,0 +1,24 @@
+{
+  "name": "@sluice-dev/web",
+  "version": "0.1.0",
+  "description": "Minimal Sluice web UI: gate reports and human scenario approvals.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/plugin-gate": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}

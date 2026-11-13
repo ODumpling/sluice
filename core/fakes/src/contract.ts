@@ -74,18 +74,35 @@ function normalizeNullable(o: unknown): unknown {
       return { anyOf: [out, { type: 'null' }] };
     }
     if (out.nullable === false) delete out.nullable;
+    // Response shapes are checked for conformance, not for branch exclusivity:
+    // loose sibling schemas (e.g. GitHub error objects) would make oneOf fail.
+    if (Array.isArray(out.oneOf)) {
+      out.anyOf = out.oneOf;
+      delete out.oneOf;
+      delete out.discriminator;
+    }
     return out;
   }
   return o;
 }
 
 /** Close every object schema that lists properties but does not say anything about extras. */
-function closeObjects(o: unknown): unknown {
-  if (Array.isArray(o)) return o.map(closeObjects);
+function closeObjects(o: unknown, inAllOf = false): unknown {
+  if (Array.isArray(o)) return o.map((v) => closeObjects(v, inAllOf));
   if (o && typeof o === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(o)) out[k] = k === 'enum' || k === 'required' ? v : closeObjects(v);
-    if (out.properties && typeof out.properties === 'object' && !('additionalProperties' in out)) {
+    for (const [k, v] of Object.entries(o)) {
+      // allOf branches each see only part of the object; closing them would reject the rest.
+      out[k] =
+        k === 'enum' || k === 'required' || k === 'examples' || k === 'example' ? v : closeObjects(v, k === 'allOf');
+    }
+    if (
+      !inAllOf &&
+      !('allOf' in out) &&
+      out.properties &&
+      typeof out.properties === 'object' &&
+      !('additionalProperties' in out)
+    ) {
       out.additionalProperties = false;
     }
     return out;
@@ -124,7 +141,8 @@ export class Contract {
         '^' +
           template.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\\?\{([^}]+)\\?\}/g, (_m, k: string) => {
             keys.push(k);
-            return '([^/]+)';
+            // a trailing {path} parameter (e.g. GitHub contents) may contain slashes
+            return k === 'path' ? '(.+)' : '([^/]+)';
           }) +
           '$',
       );
@@ -246,7 +264,7 @@ export class Contract {
     body: Record<string, unknown>,
   ): { query: Record<string, unknown>; body: Record<string, unknown>; errors: string[] } {
     const errors: string[] = [];
-    const qParams = (m.operation.parameters ?? []).filter((p) => p.in === 'query');
+    const qParams = this.parameters(m.operation).filter((p) => p.in === 'query');
     const qSchema: Schema = {
       type: 'object',
       properties: Object.fromEntries(qParams.map((p) => [p.name, p.schema ?? {}])),
@@ -270,11 +288,41 @@ export class Contract {
     return { query: q, body: b, errors };
   }
 
+  /** Operation parameters with component $refs resolved. */
+  parameters(op: Operation): Parameter[] {
+    return (op.parameters ?? []).map((p) => {
+      const ref = (p as unknown as { $ref?: string }).$ref;
+      if (!ref) return p;
+      const name = ref.split('/').pop()!;
+      const resolved = (this.doc.components as Record<string, Record<string, Parameter>> | undefined)?.parameters?.[
+        name
+      ];
+      if (!resolved) throw new Error(`unresolved parameter ${ref}`);
+      return resolved;
+    });
+  }
+
+  private response(op: Operation, status: number | 'default') {
+    let r = op.responses[String(status)] as Record<string, unknown> | undefined;
+    const ref = r?.$ref;
+    if (typeof ref === 'string') {
+      r = (this.doc.components as Record<string, Record<string, Record<string, unknown>>> | undefined)?.responses?.[
+        ref.split('/').pop()!
+      ];
+    }
+    return r as { content?: Record<string, { schema?: Schema }> } | undefined;
+  }
+
   /** Strict response validation: wrong types, missing required fields and undocumented fields all fail. */
   validateResponse(m: MatchedOperation, status: number, body: unknown): string[] {
-    const r = m.operation.responses[String(status)] ?? (status >= 400 ? m.operation.responses.default : undefined);
+    const r = this.response(m.operation, status) ?? (status >= 400 ? this.response(m.operation, 'default') : undefined);
+    const documented = String(status) in m.operation.responses;
     const schema = r?.content?.['application/json']?.schema;
-    if (!schema) return status >= 400 ? [] : [`status ${status} is not documented`];
+    if (!schema) {
+      if (status >= 400) return [];
+      if (!documented) return [`status ${status} is not documented`];
+      return body === null || body === undefined || body === '' ? [] : [`status ${status} documents no body`];
+    }
     const v = this.compile(`${m.method} ${m.template} ${status}`, schema, true);
     return v(body) ? [] : formatErrors(v.errors);
   }
@@ -302,6 +350,15 @@ export class Contract {
       });
       return this.synthesize(prim ?? branches[0]!, depth + 1);
     }
+    if (Array.isArray(s.allOf)) {
+      const merged: Record<string, Json> = {};
+      for (const b of s.allOf as Schema[]) {
+        const part = this.synthesize(b, depth + 1);
+        if (part && typeof part === 'object' && !Array.isArray(part)) Object.assign(merged, part);
+      }
+      return merged;
+    }
+    if (Array.isArray(s.oneOf) && s.oneOf.length) return this.synthesize((s.oneOf as Schema[])[0]!, depth + 1);
     if (Array.isArray(s.enum) && s.enum.length) return s.enum[0] as Json;
     switch (s.type) {
       case 'string':

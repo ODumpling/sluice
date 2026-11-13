@@ -2,6 +2,9 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { CONFIG_FILENAME } from '@sluice-dev/config';
 import { definePlugin } from '@sluice-dev/plugin-api';
+import { createWebUi } from '@sluice-dev/web';
+import { findConfigFile } from '@sluice-dev/config';
+import { dirname } from 'node:path';
 import { downCommand, upCommand } from './sandbox-commands.js';
 import { diffCommand, recordCommand, replayCommand } from './evidence-commands.js';
 
@@ -37,6 +40,21 @@ export const corePlugin = definePlugin({
         const name = typeof options.name === 'string' ? options.name : basename(ctx.cwd);
         writeFileSync(file, initTemplate(name));
         ctx.stdout.write(`wrote ${file}\n`);
+        return 0;
+      },
+    },
+    {
+      path: ['ui'],
+      summary: 'Open the local web UI (gate reports, scenario approvals) on 127.0.0.1',
+      options: [{ flags: '--port <n>', description: 'port', default: '4600' }],
+      async run({ options }, ctx) {
+        const f = findConfigFile(ctx.cwd);
+        const { url } = await createWebUi({
+          projectRoot: f ? dirname(f) : ctx.cwd,
+          port: Number(options.port),
+        }).listen();
+        ctx.stdout.write(`Sluice UI: ${url}  (Ctrl-C to stop)\n`);
+        await new Promise<void>((r) => process.once('SIGINT', () => r()));
         return 0;
       },
     },

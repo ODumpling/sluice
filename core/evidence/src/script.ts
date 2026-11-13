@@ -23,7 +23,12 @@ export interface ClockStep {
   /** Absolute ISO instant to move to. */
   clock: string;
 }
-export type Step = HttpStep | AdvanceStep | ClockStep;
+/** A no-op marker step; hosts (e.g. the gate) evaluate assertions here via RunOptions.afterStep. */
+export interface CheckStep {
+  name?: string;
+  check: string;
+}
+export type Step = HttpStep | AdvanceStep | ClockStep | CheckStep;
 
 export interface Script {
   name: string;
@@ -43,6 +48,7 @@ export function stepName(step: Step): string {
   if (step.name) return step.name;
   if ('http' in step) return `${step.http.method.toUpperCase()} ${step.http.path}`;
   if ('advance' in step) return `advance ${step.advance}`;
+  if ('check' in step) return `check ${step.check}`;
   return `clock ${step.clock}`;
 }
 
@@ -52,8 +58,9 @@ export function validateScript(raw: unknown, source = 'script'): Script {
     throw new Error(`${source}: a script needs a name and a steps list`);
   }
   s.steps.forEach((st, i) => {
-    const kinds = ['http', 'advance', 'clock'].filter((k) => k in (st as object));
-    if (kinds.length !== 1) throw new Error(`${source}: step ${i + 1} must have exactly one of http/advance/clock`);
+    const kinds = ['http', 'advance', 'clock', 'check'].filter((k) => k in (st as object));
+    if (kinds.length !== 1)
+      throw new Error(`${source}: step ${i + 1} must have exactly one of http/advance/clock/check`);
     if ('http' in st) {
       if (typeof st.http.method !== 'string' || typeof st.http.path !== 'string' || !st.http.path.startsWith('/')) {
         throw new Error(`${source}: step ${i + 1} http needs method and an absolute path`);

@@ -94,6 +94,11 @@ export class FakeServer {
       req.on('end', () => {
         this.dispatch(req, Buffer.concat(chunks).toString('utf8')).then(
           (r) => {
+            if (r.status === 204 || r.status === 304) {
+              res.writeHead(r.status, r.headers ?? {});
+              res.end();
+              return;
+            }
             res.writeHead(r.status, { 'content-type': 'application/json', ...r.headers });
             res.end(JSON.stringify(r.body));
           },

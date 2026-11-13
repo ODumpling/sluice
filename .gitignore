@@ -1,7 +1,9 @@
 node_modules/
 dist/
 coverage/
-.sluice/
+.sluice/sessions/
+.sluice/reports/
+.sluice/state/
 *.tsbuildinfo
 .DS_Store
 .env

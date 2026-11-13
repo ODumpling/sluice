@@ -27,6 +27,8 @@
     "@sluice-dev/plugin-hello": "workspace:*",
     "commander": "^15.1.0",
     "@sluice-dev/sandbox": "workspace:*",
-    "@sluice-dev/evidence": "workspace:*"
+    "@sluice-dev/evidence": "workspace:*",
+    "@sluice-dev/plugin-gate": "workspace:*",
+    "@sluice-dev/web": "workspace:*"
   }
 }

@@ -1,0 +1,32 @@
+{
+  "name": "@sluice-dev/github",
+  "version": "0.1.0",
+  "description": "Sluice GitHub surfaces: the \"Sluice Gate\" GitHub App (webhook server) and the GitHub Action.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "sluice-gate-app": "./bin/sluice-gate-app.js"
+  },
+  "exports": {
+    ".": {
+      "@sluice-dev/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "action",
+    "app.yml"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@sluice-dev/github-api": "workspace:*",
+    "@sluice-dev/plugin-gate": "workspace:*",
+    "@sluice-dev/sandbox": "workspace:*",
+    "@sluice-dev/config": "workspace:*"
+  }
+}

@@ -51,7 +51,7 @@ detection), `examples/billing-demo` (Node + Postgres + Stripe SDK),
 | drift detection                              | `core/fakes/test/drift.test.ts` (spec drift, recorded-cassette drift, client version drift); fixture drift finds real upstream drift in Stripe's fixtures                                                                       |
 | full flow against fake with zero real egress | `core/sandbox/test/billing-demo.itest.ts`: full flow incl. clock-driven renewal; app/db attached only to the internal network; in-container `fetch('https://api.stripe.com')` and raw TCP to 1.1.1.1 fail; CI job `integration` |
 
-Open issues: GitHub and S3 fakes are planned for M3/M5 (GitHub, needed for checks and policy) and M8 (S3).
+Open issues: S3 fake is planned for M8 (GitHub fake landed in M3).
 
 ## M2 Evidence + replay — done
 
@@ -70,3 +70,28 @@ alignment), determinism shim event capture, `checkoutRef` builds,
 
 Command: `pnpm test:integration` (CI job `integration`).
 Open issues: none.
+
+## M3 Gate (north star) — done
+
+Delivered: `@sluice-dev/plugin-gate` (tickets, scenarios + matchers, sha256-bound
+human approvals, scenario runner, base-vs-head behavior diff, TS-compiler-API
+mutation engine on changed lines, verdict rules, JSON/HTML/Markdown reports,
+GitHub check posting; CLI `gate ticket|propose|status|approve|run`; MCP tools
+`sluice_gate_status|propose_scenarios|run`), GitHub fake (contract-validated on
+GitHub's OpenAPI; permissions; App JWT/installation tokens), `@sluice-dev/github-api`,
+`@sluice-dev/mcp` (MCP server), `@sluice-dev/github` ("Sluice Gate" App webhook
+server + Action `surfaces/github/action/action.yml` + `app.yml` manifest),
+`@sluice-dev/web` (`sluice ui`: tickets, approvals, reports), billing-demo
+ticket `CANCEL-1` with 5 scenarios and two agent PR overlays, `pnpm demo`, ADR-0004.
+
+| Exit criterion                                  | Proof                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| north-star demo passes as an automated e2e test | `test/e2e/north-star.itest.ts` (`pnpm test:integration`): human approves 5 scenarios; immediate-cancel PR (passing unit tests) FAILS naming 3 violated scenarios, with behavior diff (response 404→200, `status: canceled`, DB `UPDATE subscriptions … canceled`, egress `DELETE /v1/subscriptions/…`) and mutation proof; correct PR PASSES (5/5, mutation ≥80%); both posted as GitHub checks (fake) + HTML artifacts; PR editing its own approvals rejected |
+| one-command demo                                | `pnpm demo` (scripts/demo.mjs) — local run: bad PR ✘ 3/5 violated, mutation 4/10; good PR ✔ 5/5, mutation 10/10                                                                                                                                                                                                                                                                                                                                                |
+| GitHub App                                      | `test/e2e/github-app.itest.ts` (signed webhook → installation token → clone → gate → failing check run), `surfaces/github/test/app.test.ts`                                                                                                                                                                                                                                                                                                                    |
+| MCP / web UI                                    | `surfaces/mcp/test/mcp.test.ts` (agents propose, cannot approve), `surfaces/web/test/web.test.ts` (approvals, CSRF guard, reports)                                                                                                                                                                                                                                                                                                                             |
+| GitHub fake + client                            | `core/github-api/test/github.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+Open issues: first local `pnpm demo` run hung once in the good-PR phase (no
+error visible; stderr was suppressed). Fixed visibility (errors always shown) and
+added timeouts to every sandbox/evidence fetch; not reproduced since.
