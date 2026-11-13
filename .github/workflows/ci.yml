@@ -62,7 +62,7 @@ jobs:
         # node/go/dotnet: the north-star demo apps (test/e2e/north-star*.itest.ts);
         # alpine + debian: builders for the `determinism: dotnet` shim
         run: >-
-          printf '%s\n' node:22-alpine postgres:16-alpine golang:1.27-alpine mcr.microsoft.com/dotnet/sdk:10.0
+          printf '%s\n' node:22-alpine postgres:16-alpine golang:1.27-alpine golang:1.22-alpine mcr.microsoft.com/dotnet/sdk:10.0
           alpine:3.20 debian:bookworm-slim | xargs -P 6 -n 1 docker pull -q
       - run: pnpm test:integration
       - name: Clean up sandboxes
