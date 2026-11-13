@@ -54,6 +54,28 @@ export const SandboxSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Run a Playwright browser inside the sandbox (its own container on the
+     * internal network) so scripts can drive the app's frontend with `browser`
+     * steps. `true` or `{}` enables it with defaults.
+     */
+    browser: z
+      .preprocess(
+        (v) => (v === true ? {} : v),
+        z
+          .object({
+            /** Override the browser image (must serve `playwright run-server` on port 3000, same Playwright version). */
+            image: z.string().min(1).optional(),
+            viewport: z
+              .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+              .strict()
+              .default({ width: 1280, height: 800 }),
+            /** Per-action timeout (click/fill/waitFor…), ms. */
+            actionTimeoutMs: z.number().int().positive().default(5000),
+          })
+          .strict(),
+      )
+      .optional(),
     /** Simulated start time (ISO) and RNG seed for deterministic runs. */
     clock: z.string().datetime().default('2030-01-15T12:00:00.000Z'),
     seed: z.number().int().default(1),

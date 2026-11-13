@@ -224,6 +224,23 @@ interpolation), `surfaces/cli/test/up.itest.ts` ("sluice down" scoping),
 `core/sandbox/test/ready-tcp.itest.ts`, `plugins/gate/test/mutation-gate.test.ts`
 (unproven changes, survivors listed).
 
+## Browser steps — 2026-11-13
+
+Delivered: `sandbox.browser` (Playwright Chromium in a container on the
+sandbox's internal network, lazily started); `browser` script/scenario steps;
+per-action evidence (requests, visible text, console, screenshot) with DB
+writes/egress/events attributed to the action; `browser` diff channel; gate
+`expect` for pages; `sluice timeline`, `record --html/--trace`; timelines in
+gate reports; billing-demo portal. ADR-0011, [guide](docs/guide/browser.md).
+
+| Exit criterion                                          | Proof                                                                                  |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| browser runs sealed inside the sandbox                  | `test/e2e/browser.itest.ts` (internal network only; `https://example.com` unreachable) |
+| click → requests → DB writes/egress/events per action   | `test/e2e/browser.itest.ts`                                                            |
+| deterministic replay with browser steps                 | `test/e2e/browser.itest.ts` (raw diff, no noise filters)                               |
+| gate scenarios judge the page (good PR pass, bad fail)  | `test/e2e/browser.itest.ts`                                                            |
+| validation, browser diff channel, timeline, version pin | `core/evidence/test/browser.test.ts`, `plugins/gate/test/gate-units.test.ts`           |
+
 # Final acceptance
 
 | Criterion                                                              | Command / proof                                                                                                                                         |

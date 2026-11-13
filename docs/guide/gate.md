@@ -30,6 +30,9 @@ steps:
   - assert: { events: { some: { event: subscription.cancel_scheduled } } }
 ```
 
+Scenarios can also drive the frontend: `browser` steps with `expect: { text,
+visible, hidden, url, title, noErrors }` (see [Browser](/guide/browser)).
+
 Matching is partial for objects, exact-length for arrays, with operators
 `$exists $ne $in $regex $gt $gte $lt $lte $contains $len $any`. Equal instants
 match across ISO spellings.

@@ -1,6 +1,7 @@
 /**
  * Acceptance scenarios: black-box checks written against the app's public
- * surface (HTTP ingress, fake third parties, the database), approved by a
+ * surface (HTTP ingress, its frontend in the sandbox browser, fake third
+ * parties, the database), approved by a
  * human before any code is judged by them.
  */
 import { createHash } from 'node:crypto';
@@ -14,13 +15,29 @@ export interface HttpExpect {
   body?: Json;
 }
 
+/** Checks on the page after a browser step (string fields are interpolated). */
+export interface BrowserExpect {
+  /** Page URL (path for the app's own origin), exact. */
+  url?: string;
+  title?: string;
+  /** Text that must be visible on the page (substring of the page's visible text). */
+  text?: string | string[];
+  /** Selectors that must match a visible element. */
+  visible?: string | string[];
+  /** Selectors that must match nothing visible. */
+  hidden?: string | string[];
+  /** No console errors, uncaught page errors or failed requests during the step. */
+  noErrors?: boolean;
+}
+const BROWSER_EXPECT_KEYS = ['url', 'title', 'text', 'visible', 'hidden', 'noErrors'];
+
 export type Assertion =
   | { fake: string; path?: string; matches: Json }
   | { sql: string; params?: Json[]; rows: Json }
   | { egress: { none?: Json; some?: Json; count?: { match: Json; equals: number } } }
   | { events: { none?: Json; some?: Json } };
 
-export type ScenarioStep = (Step & { expect?: HttpExpect }) | { name?: string; assert: Assertion };
+export type ScenarioStep = (Step & { expect?: HttpExpect | BrowserExpect }) | { name?: string; assert: Assertion };
 
 export interface Scenario {
   id: string;
@@ -49,8 +66,17 @@ export function validateScenario(raw: unknown, source = 'scenario'): Scenario {
       if ('sql' in a && !('rows' in a)) throw new Error(`${source}: step ${i + 1} sql assertion needs rows`);
       checks++;
     } else if ('expect' in st && st.expect) {
-      if (!('http' in st)) throw new Error(`${source}: step ${i + 1} expect is only valid on http steps`);
+      if ('browser' in st) {
+        const bad = Object.keys(st.expect).filter((k) => !BROWSER_EXPECT_KEYS.includes(k));
+        if (bad.length)
+          throw new Error(
+            `${source}: step ${i + 1} browser expect: unknown ${bad.join(', ')} (use ${BROWSER_EXPECT_KEYS.join('/')})`,
+          );
+      } else if (!('http' in st))
+        throw new Error(`${source}: step ${i + 1} expect is only valid on http and browser steps`);
       checks++;
+    } else if ('browser' in st) {
+      checks++; // a browser action that cannot be performed (element gone) fails the scenario
     }
   }
   if (checks === 0) throw new Error(`${source}: a scenario must check something (expect or assert)`);
@@ -78,7 +104,7 @@ export function toScript(s: Scenario): Script {
     name: s.id,
     steps: s.steps.map((st, i): Step => {
       if ('assert' in st) return { name: st.name ?? `assert #${i + 1}`, check: s.id };
-      const { expect: _expect, ...rest } = st as Step & { expect?: HttpExpect };
+      const { expect: _expect, ...rest } = st as Step & { expect?: unknown };
       return rest;
     }),
   };

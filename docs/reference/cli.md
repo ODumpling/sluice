@@ -93,6 +93,8 @@ Run a script against a sandboxed build and record a behavior session
 | `-o, --out <file>` | session output (default .sluice/sessions/&lt;name&gt;.json) |
 | `--source <dir>` | run another checkout of the project |
 | `--ref <git-ref>` | run a git ref (checked out as a temporary worktree) |
+| `--trace <file>` | browser steps: write a Playwright trace (npx playwright show-trace &lt;file&gt;) |
+| `--html <file>` | also write a timeline page: actions → requests → data changes |
 
 ### `sluice replay <session>`
 
@@ -105,6 +107,16 @@ Replay a recorded session against a build and diff behavior (exit 1 on differenc
 | `-n, --times <n>` | replay N times (determinism check) (default: `1`) |
 | `-o, --out <file>` | write the (last) replayed session |
 | `--json` | print the diff as JSON |
+| `--trace <file>` | browser steps: write a Playwright trace (npx playwright show-trace &lt;file&gt;) |
+| `--html <file>` | also write a timeline page: actions → requests → data changes |
+
+### `sluice timeline <session>`
+
+Render a recorded session as a timeline page: actions → requests → data changes
+
+| option | description |
+|---|---|
+| `-o, --out <file>` | HTML output (default: &lt;session&gt;.html) |
 
 ### `sluice ui`
 

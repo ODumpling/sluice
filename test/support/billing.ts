@@ -34,3 +34,11 @@ export const subscribeAndRenew: Script = {
     { http: { method: 'GET', path: '/subscriptions/${sub}' } },
   ],
 };
+
+/** billing-demo's source tree with one of its agent PRs (examples/billing-demo/prs/<name>) applied. */
+export function prTree(name: 'bad-immediate-cancel' | 'good-period-end-cancel'): string {
+  const root = mkdtempSync(join(tmpdir(), `sluice-${name}-`));
+  cpSync(join(DEMO, 'src'), join(root, 'src'), { recursive: true });
+  cpSync(join(DEMO, 'prs', name, 'src'), join(root, 'src'), { recursive: true });
+  return root;
+}

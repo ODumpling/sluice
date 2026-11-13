@@ -28,6 +28,8 @@ sandbox:
         http: { port: 3000, path: /health }
   fakes: [stripe]
   ingress: { service: app, port: 3000 }
+  # Playwright browser inside the sandbox (started only when a script has browser steps)
+  browser: true
   database:
     service: db
     port: 5432

@@ -18,6 +18,7 @@ sandbox:
   seed: 1 # RNG seed
   fakes: [stripe] # stripe | github | s3
   ingress: { service: app, port: 3000 }
+  browser: true # Playwright in the sandbox for `browser` steps (see guide/browser)
   database: { service: db, port: 5432, user: sluice, password: sluice, name: billing }
   services:
     db:
@@ -66,9 +67,18 @@ work:
 
 Service containers get resource caps (2 CPUs, 2 GiB, 1024 pids).
 
+## `sandbox.browser`
+
+`true`, or `{ viewport: { width, height }, actionTimeoutMs, image }` (defaults
+1280×800, 5000 ms). Runs a Playwright Chromium container on the internal
+network, started on the first `browser` step; the name `browser` is reserved
+for it. `image` replaces the default `sluice-browser:<version>` (it must serve
+a Playwright `launchServer` endpoint on `:3000/` at the same Playwright
+version as Sluice). See the [browser guide](/guide/browser).
+
 ## Noise filters
 
-Paths are rooted at a channel: `response.…`, `egress.…`, `db.…`, `events.…`,
+Paths are rooted at a channel: `response.…`, `browser.…`, `egress.…`, `db.…`, `events.…`,
 `final.…`. Public tables are keyed by bare name (`customers`), others as
 `schema:table`. Generated ids (`cus_…`, `sub_…`) are canonicalized
 automatically.

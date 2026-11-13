@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Browser steps** ([guide](docs/guide/browser.md), ADR-0011): `sandbox.browser`
+  runs Playwright Chromium inside the sandbox; scripts and gate scenarios
+  drive the frontend with `browser: { goto | click | fill | press | select |
+check | uncheck | waitFor }`. Each action records the page's requests,
+  visible text, console errors and a screenshot, and the DB writes, egress
+  and events it caused. Diffs gain a `browser` channel; gate scenarios gain
+  `expect: { text, visible, hidden, url, title, noErrors }`.
+- **Timeline**: `sluice timeline <session>` and `sluice record --html` render
+  a session as action → requests → data changes; gate reports embed it per
+  scenario. `sluice record|replay --trace` writes a Playwright trace.
+- **Sandbox**: every service is also reachable as `<name>.sluice.internal`.
+- **billing-demo**: a customer portal (`/portal/:id`) and
+  `scripts/portal-cancel.yaml`.
+
 ## 0.2.0 — 2026-11-13
 
 Fixes from the first [field trials](docs/field-trials.md) on three

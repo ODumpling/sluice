@@ -28,6 +28,7 @@ export default defineConfig({
           { text: 'Gate (north star)', link: '/guide/gate' },
           { text: 'Sandbox & fakes', link: '/guide/sandbox' },
           { text: 'Evidence & replay', link: '/guide/evidence' },
+          { text: 'Browser (frontend → data)', link: '/guide/browser' },
           { text: 'Agents (MCP, CLI)', link: '/guide/agents' },
           { text: 'Bench', link: '/guide/bench' },
           { text: 'Policy & rules', link: '/guide/policy' },

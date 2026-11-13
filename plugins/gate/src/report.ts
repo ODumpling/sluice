@@ -1,7 +1,7 @@
 /** Gate report renderers: self-contained HTML artifact, Markdown (GitHub check), terminal text. */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DiffEntry } from '@sluice-dev/evidence';
+import { renderTimeline, TIMELINE_CSS, type DiffEntry } from '@sluice-dev/evidence';
 import { GitHubClient, parseRepo } from '@sluice-dev/github-api';
 import type { GateReport, ScenarioReport } from './gate.js';
 
@@ -13,9 +13,9 @@ function short(v: unknown, n = 140): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-/** Diff entries most relevant to reviewers first: API response, egress, DB writes, events, final state. */
+/** Diff entries most relevant to reviewers first: API response, page, egress, DB writes, events, final state. */
 function rankedDiff(diff: DiffEntry[]): DiffEntry[] {
-  const order = { response: 0, egress: 1, db: 2, events: 3, final: 4 } as const;
+  const order = { response: 0, browser: 1, egress: 2, db: 3, events: 4, final: 5 } as const;
   return [...diff].sort((a, b) => order[a.channel] - order[b.channel] || a.step - b.step);
 }
 
@@ -101,7 +101,7 @@ export function renderMarkdown(
   for (const s of r.scenarios.filter((x) => !x.passed)) {
     text.push(`### ❌ ${s.id}`, '', s.title, '');
     for (const f of s.failures) text.push(`- step ${f.step + 1} \`${f.stepName}\`: ${f.message}`);
-    text.push('', 'Behavior diff vs base (API response, egress, DB writes):', '', '```diff');
+    text.push('', 'Behavior diff vs base (API response, page, egress, DB writes):', '', '```diff');
     for (const e of rankedDiff(s.diff).slice(0, 25)) {
       text.push(
         e.kind === 'added'
@@ -150,7 +150,17 @@ function scenarioHtml(s: ScenarioReport): string {
       : '<p>No behavior difference from base.</p>'
   }
   </details>
+  ${timelineHtml(s)}
 </section>`;
+}
+
+/** What happened in the head run, step by step: action → requests → data changes. */
+function timelineHtml(s: ScenarioReport): string {
+  if (!s.steps?.length) return '';
+  const failures = new Map<number, string[]>();
+  for (const f of s.failures) failures.set(f.step, [...(failures.get(f.step) ?? []), f.message]);
+  const browser = s.steps.some((st) => st.kind === 'browser');
+  return `<details${browser && !s.passed ? ' open' : ''}><summary>Timeline (head): ${browser ? 'frontend → ' : ''}requests → data changes</summary>${renderTimeline(s.steps, failures)}</details>`;
 }
 
 export function renderHtml(r: GateReport): string {
@@ -175,6 +185,7 @@ table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}th,td{te
 th{color:var(--muted);font-weight:600}tr.added td{background:var(--add)}tr.removed td{background:var(--rem)}tr.changed td{background:var(--chg)}
 .table-wrap{overflow-x:auto}summary{cursor:pointer;color:var(--muted)}ul.reasons{padding-left:18px}
 .killed{color:var(--pass);font-weight:600}.survived{color:var(--fail);font-weight:600}.invalid{color:var(--muted);font-weight:600}.error{color:var(--fail);font-weight:600}pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);padding:10px;border-radius:8px}
+details{margin-top:6px}${TIMELINE_CSS}
 </style></head><body><main>
 <div class="verdict ${r.verdict}"><h1>${r.verdict === 'pass' ? '✔ Gate open' : '✘ Gate closed'} — ${esc(r.ticket.id)}</h1><p>${esc(headline(r))}</p></div>
 <p class="meta">Ticket: <b>${esc(r.ticket.title)}</b> · base <code>${esc(r.base.ref)}@${r.base.sha.slice(0, 8)}</code> → head <code>${esc(r.head.ref)}@${r.head.sha.slice(0, 8)}</code> · ${(r.durationMs / 1000).toFixed(1)}s</p>

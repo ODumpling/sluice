@@ -51,7 +51,7 @@ On a bundled app (**billing-demo**: Node + Postgres + fake Stripe; ports in
 | ------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | Sandbox      | `sluice up`, `sluice down`                                  | Docker services on an internal network; egress only to Sluice-hosted fakes            |
 | Fakes        | —                                                           | Stripe, GitHub (OpenAPI contract-validated), S3 (SigV4-verified); drift detection     |
-| Evidence     | `sluice record`, `replay`, `diff`                           | HTTP, egress, SQL writes, events; deterministic replay; noise-filtered diffs          |
+| Evidence     | `sluice record`, `replay`, `diff`, `timeline`               | HTTP, browser (Playwright in the sandbox), egress, SQL writes, events; replay; diffs  |
 | Gate         | `sluice gate ticket\|propose\|status\|approve\|run`         | approved scenarios → black-box checks → behavior diff → mutation proof → GitHub check |
 | Bench        | `sluice bench mine\|run`                                    | mine history into fail-to-pass tasks; compare agents on pass rate, cost, time         |
 | Policy       | `sluice policy serve\|grant\|approvals\|approve\|audit`     | task-scoped credential broker, step-up approval, tamper-evident audit                 |
