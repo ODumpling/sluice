@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/sandbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Spin up an app and its dependencies in Docker from a sluice.yaml env spec, with egress sealed to fakes.",
   "license": "Apache-2.0",
   "type": "module",

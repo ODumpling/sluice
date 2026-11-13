@@ -107,9 +107,11 @@ export async function runScript(sb: Sandbox, script: Script, opts: RunOptions = 
         const method = step.http.method.toUpperCase();
         const path = interpolate(step.http.path, vars) as string;
         const body = step.http.body === undefined ? undefined : interpolate(step.http.body, vars);
+        const headers =
+          step.http.headers === undefined ? {} : (interpolate(step.http.headers, vars) as Record<string, string>);
         const res = await fetch(sb.ingressUrl + path, {
           method,
-          headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...step.http.headers },
+          headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...headers },
           body: body !== undefined ? JSON.stringify(body) : undefined,
           signal: AbortSignal.timeout(60_000),
         });

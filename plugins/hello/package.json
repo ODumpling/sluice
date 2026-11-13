@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/plugin-hello",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reference plugin demonstrating the Sluice plugin API (a command and an MCP tool).",
   "license": "Apache-2.0",
   "type": "module",

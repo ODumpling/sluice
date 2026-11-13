@@ -110,7 +110,7 @@ sandbox:
 /** Core commands, registered through the same plugin API as everything else. */
 export const corePlugin = definePlugin({
   name: '@sluice-dev/core-commands',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description: 'Built-in core commands',
   commands: [

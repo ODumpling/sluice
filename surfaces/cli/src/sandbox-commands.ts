@@ -69,10 +69,12 @@ export const upCommand: CommandSpec = {
 
 export const downCommand: CommandSpec = {
   path: ['down'],
-  summary: 'Remove all Sluice sandbox containers and networks left on this machine',
-  async run(_input, ctx) {
-    const n = await Sandbox.pruneAll();
-    ctx.stdout.write(`removed ${n} container(s)\n`);
+  summary: "Remove this project's leftover Sluice sandbox containers and networks (--all: every project's)",
+  options: [{ flags: '--all', description: 'remove every Sluice sandbox on this machine, from all projects' }],
+  async run({ options }, ctx) {
+    const project = options.all === true ? undefined : (loadConfig(ctx.cwd).config.name ?? 'app');
+    const n = await Sandbox.pruneAll(project);
+    ctx.stdout.write(`removed ${n} container(s)${project === undefined ? ' (all projects)' : ` of ${project}`}\n`);
     return 0;
   },
 };

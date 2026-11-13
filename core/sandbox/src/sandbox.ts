@@ -16,7 +16,6 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import net from 'node:net';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -122,17 +121,6 @@ async function waitFor(what: string, fn: () => Promise<boolean>, timeoutMs: numb
   }
 }
 
-function tcpOpen(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const s = net.connect({ host: '127.0.0.1', port });
-    s.once('connect', () => {
-      s.destroy();
-      resolve(true);
-    });
-    s.once('error', () => resolve(false));
-  });
-}
-
 export class Sandbox {
   readonly id: string;
   readonly name: string;
@@ -155,7 +143,7 @@ export class Sandbox {
     this.spec = opts.spec;
     this.root = resolve(opts.root);
     this.sourceRoot = resolve(opts.sourceRoot ?? opts.root);
-    this.name = (opts.name ?? 'app').toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    this.name = projectSlug(opts.name ?? 'app');
     this.id = `${randomBytes(4).toString('hex')}`;
     this.seed = opts.seed ?? opts.spec.seed;
     this.startMs = opts.startMs ?? Date.parse(opts.spec.clock);
@@ -308,12 +296,16 @@ export class Sandbox {
     this.started = false;
   }
 
-  /** Remove every sandbox container/network left behind by crashed runs. */
-  static async pruneAll(): Promise<number> {
-    const r = await docker(['ps', '-aq', '--filter', 'label=sluice.sandbox'], { allowFail: true });
+  /**
+   * Remove sandbox containers/networks left behind by crashed runs: those of
+   * `project` (the `name` in sluice.yaml), or every project's when omitted.
+   */
+  static async pruneAll(project?: string): Promise<number> {
+    const filter = project === undefined ? 'label=sluice.sandbox' : `label=sluice.project=${projectSlug(project)}`;
+    const r = await docker(['ps', '-aq', '--filter', filter], { allowFail: true });
     const ids = r.stdout.split('\n').filter(Boolean);
     if (ids.length) await docker(['rm', '-f', ...ids], { allowFail: true });
-    const n = await docker(['network', 'ls', '-q', '--filter', 'name=sluice-'], { allowFail: true });
+    const n = await docker(['network', 'ls', '-q', '--filter', filter], { allowFail: true });
     const nets = n.stdout.split('\n').filter(Boolean);
     if (nets.length) await docker(['network', 'rm', ...nets], { allowFail: true });
     return ids.length;
@@ -533,8 +525,17 @@ export class Sandbox {
         timeout,
       );
     } else {
-      const port = this.hostPort(name, ready.tcp);
-      await waitFor(`${name} (tcp ${ready.tcp})`, async () => (await running(), await tcpOpen(port)), timeout);
+      // Probe from inside the sandbox network: the gateway's published port
+      // accepts connections whether or not the service listens behind it.
+      const probe = `require('net').connect(${ready.tcp}, ${JSON.stringify(name)}).on('connect', () => process.exit(0)).on('error', () => process.exit(1))`;
+      await waitFor(
+        `${name} (tcp ${ready.tcp})`,
+        async () => (
+          await running(),
+          (await docker(['exec', this.gateway, 'node', '-e', probe], { allowFail: true })).code === 0
+        ),
+        timeout,
+      );
     }
     if (isDeterministic(svc)) {
       const port = this.hostPort(name, CONTROL_PORT);
@@ -615,4 +616,8 @@ export class Sandbox {
   get isUp(): boolean {
     return this.started;
   }
+}
+
+function projectSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 }

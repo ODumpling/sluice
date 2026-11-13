@@ -8,7 +8,16 @@ sluice diff base.json pr.json [--json] [--ignore 'db.*.new.updated_at']
 ```
 
 A **script** is a list of steps: `http` (with `save` captures and `${var}`
-interpolation), `advance: 35d`, `clock: <ISO>`.
+interpolation in `path`, `body` and `headers`), `advance: 35d`, `clock: <ISO>`.
+Authenticate by saving a token from a login response:
+
+```yaml
+steps:
+  - http: { method: POST, path: /api/login, body: { user: ada, password: pw } }
+    save: { token: body.token }
+  - http: { method: GET, path: /api/me, headers: { authorization: 'Bearer ${token}' } }
+    expect: { status: 200 }
+```
 
 A **session** records per step: the ingress exchange, every call the app made
 to fakes (egress), row-level DB writes (audit triggers attached automatically

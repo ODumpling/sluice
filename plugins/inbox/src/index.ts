@@ -26,7 +26,7 @@ async function withInbox<T>(ctx: PluginContext, fn: (i: Inbox) => Promise<T>): P
 
 export default definePlugin({
   name: '@sluice-dev/plugin-inbox',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description: 'Typed decision requests: dedupe, human answers, propagation to blocked tasks',
   activate(ctx) {

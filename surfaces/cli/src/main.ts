@@ -2,7 +2,7 @@ import { Command, CommanderError } from 'commander';
 import type { CommandSpec, SluicePlugin } from '@sluice-dev/plugin-api';
 import { createCliHost, type HostIO } from './host.js';
 
-export const CLI_VERSION = '0.1.0';
+export const CLI_VERSION = '0.2.0';
 
 function defaultIO(): HostIO {
   return {

@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-13
+
+Fixes from the first [field trials](docs/field-trials.md) on three
+third-party services (Node, Go, .NET):
+
+- **Evidence/gate**: `${var}` interpolation in request `headers`, so a token
+  saved from a login can authenticate later steps.
+- **CLI**: `sluice down` removes only the current project's sandboxes;
+  `--all` removes every project's.
+- **Sandbox**: `ready: { tcp }` waits for the service itself (it probed the
+  gateway port, which always accepts).
+- **Gate**: changed source lines that yield no mutants fail as unproven
+  (`mutation.allowNoMutants: true` to accept); surviving mutants are listed in
+  the CLI output.
+- **Docs**: the database clock is not frozen; concurrent .NET `Guid` draws need
+  `SLUICE_DOTNET_WORKERS: '1'`; authenticated script example.
+
+The npm 0.1.0 packages already contained the Go/.NET work below; the `v0.1.0`
+git tag predates it. 0.2.0 is the first release whose tag matches npm.
 
 Go and C#/.NET get the same out-of-the-box support as TypeScript/JavaScript
 ([docs/languages.md](docs/languages.md)):

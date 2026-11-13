@@ -8,7 +8,7 @@ export function greeting(name: string, shout = false): string {
 /** Reference plugin: one CLI command and one MCP tool. */
 export default definePlugin({
   name: '@sluice-dev/plugin-hello',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description: 'Reference plugin for the Sluice plugin API.',
   commands: [

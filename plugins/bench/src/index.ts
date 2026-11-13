@@ -136,7 +136,7 @@ function configPath(ctx: PluginContext, opt: unknown): string {
 
 export default definePlugin({
   name: '@sluice-dev/plugin-bench',
-  version: '0.1.0',
+  version: '0.2.0',
   apiVersion: '^1.0.0',
   description: 'Mine merged changes into eval tasks; compare agent configs on pass rate, cost and wall time',
   commands: [

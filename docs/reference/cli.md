@@ -17,7 +17,11 @@ Diff two recorded sessions (noise filters from sluice.yaml evidence.ignore)
 
 ### `sluice down`
 
-Remove all Sluice sandbox containers and networks left on this machine
+Remove this project's leftover Sluice sandbox containers and networks (--all: every project's)
+
+| option | description |
+|---|---|
+| `--all` | remove every Sluice sandbox on this machine, from all projects |
 
 ### `sluice init`
 

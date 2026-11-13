@@ -29,7 +29,7 @@ describe('sluice CLI', () => {
   it('--version prints the version', async () => {
     const t = io();
     expect(await runCli(['--version'], t)).toBe(0);
-    expect(t.out().trim()).toBe('0.1.0');
+    expect(t.out().trim()).toBe('0.2.0');
   });
   it('runs the hello plugin command with config from sluice.yaml', async () => {
     const t = io();

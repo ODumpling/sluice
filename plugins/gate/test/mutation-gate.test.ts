@@ -218,6 +218,13 @@ describe('mutationOutcome', () => {
       'mutation proof inconclusive: all 2 mutants failed to compile',
     ]);
   });
+  it('changed source lines with no mutants are unproven: the gate fails unless allowed', () => {
+    expect(mutationOutcome([], 0.8, { changedSourceLines: 7 }).reasons).toEqual([
+      'mutation proof unproven: 7 changed source lines but no mutants could be generated (set pluginConfig.gate.mutation.allowNoMutants: true to accept)',
+    ]);
+    expect(mutationOutcome([], 0.8, { changedSourceLines: 7, allowNoMutants: true }).reasons).toEqual([]);
+    expect(mutationOutcome([], 0.8, { changedSourceLines: 0 }).reasons).toEqual([]);
+  });
   it('fails closed on sandbox errors: an untested mutant never counts as caught', () => {
     // Docker died after the baseline: 1 real kill + 3 untested must not read as 100%
     const o = mutationOutcome(st('killed', 'error', 'error', 'error'), 0.8);
@@ -286,6 +293,7 @@ describe('report: invalid mutants', () => {
     expect(renderText(r)).toContain(
       'mutation proof: 1/2 deliberately broken versions caught (1 more did not compile; not scored)',
     );
+    expect(renderText(r)).toContain('    SURVIVED main.go:3 binary-operator `<` → `<=`');
     const md = renderMarkdown(r);
     expect(md.summary).toContain('1/2 deliberately broken versions');
     expect(md.text).toContain('⛔ invalid — did not compile (not scored)');

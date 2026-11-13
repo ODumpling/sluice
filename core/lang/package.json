@@ -1,6 +1,6 @@
 {
   "name": "@sluice-dev/lang",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Language support for Sluice: TypeScript/JavaScript, Go and C# parsing (ast-grep/tree-sitter), source discovery and toolchain detection.",
   "license": "Apache-2.0",
   "type": "module",
