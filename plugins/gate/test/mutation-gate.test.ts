@@ -113,6 +113,15 @@ describe('runMutantScenario', () => {
     expect((await runMutantScenario(failingReset(appDial), scenario, '/t', 'm', { language: 'go' })).kind).toBe(
       'broken',
     );
+    const appGet = exited('panic: Get "https://api.example.test/config": dial tcp 10.0.0.1:443: i/o timeout');
+    expect((await runMutantScenario(failingReset(appGet), scenario, '/t', 'm', { language: 'go' })).kind).toBe(
+      'broken',
+    );
+    // a compiler diagnostic that merely quotes such text is still a compile error
+    const compileQuote = exited('# example.com/app\nsrc/client.go:9:2: undefined: dialErr ("dial tcp" in comment)');
+    expect((await runMutantScenario(failingReset(compileQuote), scenario, '/t', 'm', { language: 'go' })).kind).toBe(
+      'invalid',
+    );
     // MSBuild task/Exec failures aren't the mutant's fault either
     const msb = exited('/app/BillingDemo.csproj(12,5): error MSB3073: The command "npm run build" exited with code 1.');
     expect((await runMutantScenario(failingReset(msb), scenario, '/t', 'm', { language: 'csharp' })).kind).toBe(
